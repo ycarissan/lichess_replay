@@ -28,7 +28,19 @@
         </a>
       </p>
 
-      <div id="board" class="board-container"></div>
+      <div class="board-wrapper">
+        <div id="board" class="board-container"></div>
+        <div id="promotion-picker" class="promotion-picker" style="display:none;">
+          <p class="promotion-title">Choisissez la pièce de promotion</p>
+          <div class="promotion-choices">
+            <button type="button" class="promotion-btn" data-piece="q"></button>
+            <button type="button" class="promotion-btn" data-piece="r"></button>
+            <button type="button" class="promotion-btn" data-piece="b"></button>
+            <button type="button" class="promotion-btn" data-piece="n"></button>
+          </div>
+          <button type="button" id="promotion-cancel" class="promotion-cancel">Annuler</button>
+        </div>
+      </div>
 
       <div class="controls">
         <button id="btn-reset">⏮ Recommencer</button>
@@ -140,8 +152,88 @@
       return {
         from: uci.slice(0, 2),
         to: uci.slice(2, 4),
-        promotion: uci.length > 4 ? uci[4] : 'q'
+        promotion: uci.length > 4 ? uci[4] : null
       };
+    }
+
+    // --- Sélecteur de pièce de promotion --------------------------------
+    const PROMOTION_GLYPHS = {
+      w: { q: '♕', r: '♖', b: '♗', n: '♘' },
+      b: { q: '♛', r: '♜', b: '♝', n: '♞' }
+    };
+    let pendingPromotion = null; // { source, target } en attente de choix
+
+    function isPromotionMove(source, target) {
+      const piece = game.get(source);
+      if (!piece || piece.type !== 'p') return false;
+      return (piece.color === 'w' && target[1] === '8') || (piece.color === 'b' && target[1] === '1');
+    }
+
+    function openPromotionPicker(source, target) {
+      const piece = game.get(source);
+      pendingPromotion = { source, target };
+      document.querySelectorAll('.promotion-btn').forEach(btn => {
+        btn.textContent = PROMOTION_GLYPHS[piece.color][btn.dataset.piece];
+      });
+      document.getElementById('promotion-picker').style.display = 'flex';
+    }
+
+    function closePromotionPicker() {
+      pendingPromotion = null;
+      document.getElementById('promotion-picker').style.display = 'none';
+    }
+
+    document.querySelectorAll('.promotion-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!pendingPromotion) return;
+        const { source, target } = pendingPromotion;
+        const chosen = btn.dataset.piece;
+        closePromotionPicker();
+        const ok = attemptMove(source, target, chosen);
+        if (!ok) {
+          board.position(game.fen()); // annule visuellement le coup optimiste
+        }
+      });
+    });
+
+    document.getElementById('promotion-cancel').addEventListener('click', () => {
+      closePromotionPicker();
+      board.position(game.fen()); // remet le pion à sa case de départ
+    });
+
+    // --- Validation d'un coup tenté (identique pour drag normal et
+    //     promotion, une fois la pièce choisie) -------------------------
+    function attemptMove(source, target, promotion) {
+      const expectedUci = solution[moveIndex];
+      const expected = uciToMove(expectedUci);
+      const isExpectedPromotion = expectedUci.length > 4;
+
+      if (source !== expected.from || target !== expected.to ||
+          (isExpectedPromotion && promotion !== expected.promotion)) {
+        setStatus(isExpectedPromotion && source === expected.from && target === expected.to
+          ? '❌ Mauvaise pièce de promotion, réessayez.'
+          : '❌ Ce n\'est pas le bon coup, réessayez.');
+        return false;
+      }
+
+      const result = game.move({ from: source, to: target, promotion: promotion || 'q' });
+      if (!result) return false;
+
+      board.position(game.fen());  // reflète le coup (y compris une promotion) quelle que soit son origine
+
+      moveIndex++;
+      if (moveIndex >= solution.length) {
+        solved = true;
+        setStatus('✅ Bravo, puzzle résolu !');
+        if (!solutionRevealed) {
+          recordOnce(true);
+          setTimeout(goToNextPuzzle, 900);
+        }
+      } else {
+        setStatus('✔️ Bon coup !');
+        playOpponentReply();
+      }
+      return true;
     }
 
     // Joue automatiquement la réponse de l'adversaire (avec un léger délai
@@ -171,27 +263,16 @@
     function handleDrop(source, target) {
       if (solved || moveIndex >= solution.length) return 'snapback';
 
-      const expected = uciToMove(solution[moveIndex]);
-      if (source !== expected.from || target !== expected.to) {
-        setStatus('❌ Ce n\'est pas le bon coup, réessayez.');
+      if (isPromotionMove(source, target)) {
+        // Le pion revient à sa case (évite un conflit avec onSnapEnd, qui
+        // resynchroniserait sur l'état du moteur avant le choix de pièce) ;
+        // le sélecteur de promotion prend le relais visuellement.
+        openPromotionPicker(source, target);
         return 'snapback';
       }
 
-      const result = game.move({ from: source, to: target, promotion: expected.promotion });
-      if (!result) return 'snapback';
-
-      moveIndex++;
-      if (moveIndex >= solution.length) {
-        solved = true;
-        setStatus('✅ Bravo, puzzle résolu !');
-        if (!solutionRevealed) {
-          recordOnce(true);
-          setTimeout(goToNextPuzzle, 900);
-        }
-      } else {
-        setStatus('✔️ Bon coup !');
-        playOpponentReply();
-      }
+      const ok = attemptMove(source, target, null);
+      return ok ? undefined : 'snapback';
     }
 
     // Révèle la solution restante, coup par coup, sans validation.
@@ -222,6 +303,7 @@
       solved = false;
       solutionRevealed = false;
       resultRecorded = false;
+      closePromotionPicker();
       setStatus('À vous de jouer.');
     }
 
