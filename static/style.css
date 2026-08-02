@@ -84,7 +84,7 @@ h1 { font-size: 1.5rem; }
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 
-.puzzle-info { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; word-break: break-word; }
+.puzzle-info { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; min-width: 0; word-break: break-word; }
 .themes { color: #5f5f5f; font-size: 1rem; }
 
 .controls {
@@ -152,6 +152,127 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
 
 #themes-chart { max-width: 100%; }
 
+/* --- Carrousel de puzzles : une carte à la fois, flèches superposées --- */
+.carousel-wrapper {
+  position: relative;
+  padding: 0 3rem;
+}
+
+.puzzle-list.carousel { margin: 0; }
+.puzzle-list.carousel .puzzle-card { display: none; margin-bottom: 0; }
+.puzzle-list.carousel .puzzle-card.active { display: flex; }
+
+.carousel-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.75rem;
+  height: 2.75rem;
+  border: none;
+  border-radius: 50%;
+  background: rgba(74, 122, 60, 0.35);
+  color: #fff;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s ease, opacity 0.2s ease;
+  z-index: 5;
+}
+
+.carousel-arrow:hover:not(:disabled) { background: rgba(74, 122, 60, 0.75); }
+.carousel-arrow:disabled { opacity: 0.25; cursor: default; }
+
+.carousel-prev { left: 0; }
+.carousel-next { right: 0; }
+
+.carousel-counter {
+  text-align: center;
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+  color: #5f5f5f;
+}
+
+/* --- Aperçu miniature de position + rating + popover thèmes --- */
+
+.mini-board {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  width: 6.5rem;
+  height: 6.5rem;
+  border: 2px solid #d8d2c4;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.mini-board-empty {
+  background: #eee;
+}
+
+.mini-square {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.mini-light { background: #eeeed2; }
+.mini-dark { background: #4a7a3c; }
+.mini-white { color: #fff; text-shadow: 0 0 1px #000, 0 0 2px #000; }
+.mini-black { color: #1a1a1a; }
+
+.rating-label { font-size: 0.95rem; color: #2b2b2b; font-weight: 600; }
+
+.card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.popover-anchor { position: relative; }
+
+.info-btn {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  min-height: 38px;
+}
+.info-btn:hover { background: #f4f1ec; }
+
+.themes-popover {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2b2b2b;
+  color: #fff;
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  white-space: normal;
+  width: max-content;
+  max-width: 14rem;
+  text-align: center;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  z-index: 20;
+}
+
+.themes-popover::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #2b2b2b;
+}
+
 /* Échiquier fluide : occupe toute la largeur disponible, plafonné à 400px */
 .board-container {
   width: 100%;
@@ -179,4 +300,7 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
   .controls button { flex: 1 1 auto; }
 
   .hint { text-align: center; }
+
+  .carousel-wrapper { padding: 0 2.5rem; }
+  .carousel-arrow { width: 2.4rem; height: 2.4rem; font-size: 1.4rem; }
 }

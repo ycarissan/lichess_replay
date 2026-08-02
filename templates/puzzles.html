@@ -48,14 +48,22 @@
                 data-puzzle-id="{{ p.id }}"
                 data-rating="{{ p.rating }}"
                 data-themes="{{ p.themes | join(',') }}"
+                data-fen="{{ p.fen }}"
                 data-pos="{{ loop.index0 }}">
               <div class="puzzle-info">
-                <strong>Puzzle {{ p.id }}</strong>
-                <span>Rating : {{ p.rating }}</span>
-                <span class="themes">{{ p.themes | join(', ') }}</span>
+                <div class="mini-board-slot"></div>
+                <span class="rating-label">Rating : {{ p.rating }}</span>
                 <span class="box-badge" data-box-for="{{ p.id }}"></span>
               </div>
-              <a class="btn replay-link" href="{{ url_for('replay', puzzle_id=p.id) }}">Rejouer</a>
+              <div class="card-actions">
+                <div class="popover-anchor">
+                  <button type="button" class="info-btn" aria-haspopup="true" aria-expanded="false">
+                    ℹ️ Thèmes
+                  </button>
+                  <div class="themes-popover" role="tooltip" hidden>{{ p.themes | join(', ') }}</div>
+                </div>
+                <a class="btn replay-link" href="{{ url_for('replay', puzzle_id=p.id) }}">Rejouer</a>
+              </div>
             </li>
           {% endfor %}
         </ul>
@@ -65,6 +73,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
   <script src="{{ url_for('static', filename='leitner.js') }}"></script>
+  <script src="{{ url_for('static', filename='board-preview.js') }}"></script>
   <script>
     // 1) Détecte les puzzles nouvellement ratés (absents du suivi avant ce
     //    chargement) et enregistre tout le monde dans le localStorage.
@@ -73,8 +82,9 @@
       const id = card.dataset.puzzleId;
       const rating = parseInt(card.dataset.rating, 10) || null;
       const themes = card.dataset.themes ? card.dataset.themes.split(',') : [];
+      const fen = card.dataset.fen || null;
       if (!leitnerHasPuzzle(id)) newIds.push(id);
-      leitnerTrackFailedPuzzle(id, { rating, themes });
+      leitnerTrackFailedPuzzle(id, { rating, themes, fen });
     });
 
     if (newIds.length > 0) {
@@ -90,7 +100,8 @@
       }, 3000);
     }
 
-    // 2) Affiche le niveau (boîte) à côté de chaque puzzle de la liste Lichess.
+    // 2) Affiche le niveau (boîte) à côté de chaque puzzle de la liste Lichess,
+    //    et insère l'aperçu miniature de la position initiale.
     const allTracked = Object.fromEntries(
       leitnerGetAllPuzzles().map(p => [p.id, p])
     );
@@ -100,6 +111,12 @@
       if (entry) {
         badge.textContent = `Boîte ${entry.box}/5 — ${leitnerFormatNextReview(entry.nextReview)}`;
       }
+    });
+
+    document.querySelectorAll('#recent-list .puzzle-card').forEach(card => {
+      const slot = card.querySelector('.mini-board-slot');
+      const fen = card.dataset.fen;
+      if (slot && fen) slot.appendChild(renderMiniBoard(fen));
     });
 
     // 3) Ajoute les paramètres de file (queue/pos) aux liens "Rejouer" pour
@@ -126,13 +143,20 @@
         li.className = 'puzzle-card';
         li.innerHTML = `
           <div class="puzzle-info">
-            <strong>Puzzle ${p.id}</strong>
-            <span>Rating : ${p.rating ?? '?'}</span>
-            <span class="themes">${(p.themes || []).join(', ')}</span>
+            <div class="mini-board-slot"></div>
+            <span class="rating-label">Rating : ${p.rating ?? '?'}</span>
             <span class="box-badge">Boîte ${p.box}/5</span>
           </div>
-          <a class="btn" href="/replay/${p.id}?queue=${encodeURIComponent(dueQueue)}&pos=${i}">Réviser</a>
+          <div class="card-actions">
+            <div class="popover-anchor">
+              <button type="button" class="info-btn" aria-haspopup="true" aria-expanded="false">ℹ️ Thèmes</button>
+              <div class="themes-popover" role="tooltip" hidden>${(p.themes || []).join(', ')}</div>
+            </div>
+            <a class="btn" href="/replay/${p.id}?queue=${encodeURIComponent(dueQueue)}&pos=${i}">Réviser</a>
+          </div>
         `;
+        const slot = li.querySelector('.mini-board-slot');
+        if (slot && p.fen) slot.appendChild(renderMiniBoard(p.fen));
         dueList.appendChild(li);
       });
       document.getElementById('due-section').style.display = 'block';
@@ -178,6 +202,87 @@
         el.style.display = 'block';
       }
     }
+    // 6) Transforme une liste de puzzles en carrousel : une carte visible à
+    //    la fois, navigation via flèches semi-transparentes superposées.
+    function initCarousel(ul) {
+      if (!ul) return;
+      const items = Array.from(ul.children).filter(el => el.classList.contains('puzzle-card'));
+      if (items.length === 0) return;
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'carousel-wrapper';
+      ul.parentNode.insertBefore(wrapper, ul);
+      wrapper.appendChild(ul);
+      ul.classList.add('carousel');
+
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'carousel-arrow carousel-prev';
+      prevBtn.setAttribute('aria-label', 'Puzzle précédent');
+      prevBtn.innerHTML = '&#8249;';
+
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'carousel-arrow carousel-next';
+      nextBtn.setAttribute('aria-label', 'Puzzle suivant');
+      nextBtn.innerHTML = '&#8250;';
+
+      const counter = document.createElement('div');
+      counter.className = 'carousel-counter';
+
+      wrapper.appendChild(prevBtn);
+      wrapper.appendChild(nextBtn);
+      wrapper.appendChild(counter);
+
+      let index = 0;
+
+      function render() {
+        items.forEach((item, i) => item.classList.toggle('active', i === index));
+        counter.textContent = `${index + 1} / ${items.length}`;
+        prevBtn.disabled = index === 0;
+        nextBtn.disabled = index === items.length - 1;
+      }
+
+      prevBtn.addEventListener('click', () => {
+        if (index > 0) { index--; render(); }
+      });
+      nextBtn.addEventListener('click', () => {
+        if (index < items.length - 1) { index++; render(); }
+      });
+
+      render();
+    }
+
+    initCarousel(document.getElementById('recent-list'));
+    initCarousel(document.getElementById('due-list'));
+
+    // 7) Popovers "Thèmes" : un seul ouvert à la fois, fermeture au clic
+    //    en dehors ou en ré-appuyant sur le bouton.
+    function closeAllPopovers(except) {
+      document.querySelectorAll('.themes-popover').forEach(pop => {
+        if (pop !== except) pop.hidden = true;
+      });
+      document.querySelectorAll('.info-btn').forEach(btn => {
+        if (btn.nextElementSibling !== except) btn.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('.info-btn');
+      if (btn) {
+        const popover = btn.nextElementSibling;
+        const willOpen = popover.hidden;
+        closeAllPopovers(willOpen ? popover : null);
+        popover.hidden = !willOpen;
+        btn.setAttribute('aria-expanded', String(willOpen));
+        e.stopPropagation();
+        return;
+      }
+      // Clic en dehors d'un popover ouvert -> on ferme tout.
+      if (!e.target.closest('.themes-popover')) {
+        closeAllPopovers(null);
+      }
+    });
   </script>
 </body>
 </html>

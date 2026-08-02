@@ -62,8 +62,13 @@ function leitnerTrackFailedPuzzle(puzzleId, meta) {
       nextReview: new Date().toISOString(), // dû tout de suite
       rating: (meta && meta.rating) || null,
       themes: (meta && meta.themes) || [],
+      fen: (meta && meta.fen) || null,
       history: []
     };
+    leitnerSave(data);
+  } else if (meta && meta.fen && !data[puzzleId].fen) {
+    // Complète le FEN s'il manquait (ancien puzzle suivi avant cet ajout).
+    data[puzzleId].fen = meta.fen;
     leitnerSave(data);
   }
   return data[puzzleId];
