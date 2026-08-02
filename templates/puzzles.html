@@ -57,7 +57,9 @@
                 data-fen="{{ p.fen }}"
                 data-pos="{{ loop.index0 }}">
               <div class="puzzle-info">
-                <div class="mini-board-slot"></div>
+                <a class="mini-board-link" href="{{ url_for('replay', puzzle_id=p.id) }}">
+                  <div class="mini-board-slot"></div>
+                </a>
                 <span class="rating-label">Rating : {{ p.rating }}</span>
                 <span class="box-badge" data-box-for="{{ p.id }}"></span>
               </div>
@@ -68,7 +70,6 @@
                   </button>
                   <div class="themes-popover" role="tooltip" hidden>{{ p.themes | join(', ') }}</div>
                 </div>
-                <a class="btn replay-link" href="{{ url_for('replay', puzzle_id=p.id) }}">Rejouer</a>
               </div>
             </li>
           {% endfor %}
@@ -115,7 +116,8 @@
       const id = badge.dataset.boxFor;
       const entry = allTracked[id];
       if (entry) {
-        badge.textContent = `Boîte ${entry.box}/5 — ${leitnerFormatNextReview(entry.nextReview)}`;
+        badge.textContent = `${leitnerBoxEmoji(entry.box)} ${leitnerFormatNextReview(entry.nextReview)}`;
+        badge.title = `Boîte ${entry.box}/5`;
       }
     });
 
@@ -153,14 +155,14 @@
       ensureMiniBoard(slot, card.dataset.puzzleId, card.dataset.fen || null);
     });
 
-    // 3) Ajoute les paramètres de file (queue/pos) aux liens "Rejouer" pour
-    //    permettre l'enchaînement automatique au puzzle suivant en cas de
-    //    réussite (géré dans replay.html).
+    // 3) Ajoute les paramètres de file (queue/pos) au lien sur l'échiquier
+    //    pour permettre l'enchaînement automatique au puzzle suivant en cas
+    //    de réussite (géré dans replay.html).
     const recentList = document.getElementById('recent-list');
     if (recentList) {
       const queue = recentList.dataset.queue;
       document.querySelectorAll('#recent-list .puzzle-card').forEach(card => {
-        const link = card.querySelector('.replay-link');
+        const link = card.querySelector('.mini-board-link');
         const pos = card.dataset.pos;
         link.href += `?queue=${encodeURIComponent(queue)}&pos=${pos}`;
       });
@@ -177,16 +179,17 @@
         li.className = 'puzzle-card';
         li.innerHTML = `
           <div class="puzzle-info">
-            <div class="mini-board-slot"></div>
+            <a class="mini-board-link" href="/replay/${p.id}?queue=${encodeURIComponent(dueQueue)}&pos=${i}">
+              <div class="mini-board-slot"></div>
+            </a>
             <span class="rating-label">Rating : ${p.rating ?? '?'}</span>
-            <span class="box-badge">Boîte ${p.box}/5</span>
+            <span class="box-badge" title="Boîte ${p.box}/5">${leitnerBoxEmoji(p.box)}</span>
           </div>
           <div class="card-actions">
             <div class="popover-anchor">
               <button type="button" class="info-btn" aria-haspopup="true" aria-expanded="false">ℹ️ Thèmes</button>
               <div class="themes-popover" role="tooltip" hidden>${(p.themes || []).join(', ')}</div>
             </div>
-            <a class="btn" href="/replay/${p.id}?queue=${encodeURIComponent(dueQueue)}&pos=${i}">Réviser</a>
           </div>
         `;
         const slot = li.querySelector('.mini-board-slot');

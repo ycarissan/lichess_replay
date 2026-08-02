@@ -207,6 +207,19 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
 
 /* --- Aperçu miniature de position + rating + popover thèmes --- */
 
+.mini-board-link {
+  display: inline-block;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.mini-board-link:hover,
+.mini-board-link:focus-visible {
+  transform: scale(1.04);
+  box-shadow: 0 0 0 3px rgba(74, 122, 60, 0.35);
+  outline: none;
+}
+
 .mini-board {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
