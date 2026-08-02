@@ -133,6 +133,12 @@ function leitnerGetThemeCounts() {
   return counts;
 }
 
+// Emoji représentant le niveau de maîtrise (boîte 1 = à revoir vite, 5 = quasi acquis).
+const LEITNER_BOX_EMOJIS = { 1: '🔴', 2: '🟠', 3: '🟡', 4: '🟢', 5: '🏆' };
+function leitnerBoxEmoji(box) {
+  return LEITNER_BOX_EMOJIS[box] || '⬜';
+}
+
 function leitnerFormatNextReview(iso) {
   const d = new Date(iso);
   const now = new Date();

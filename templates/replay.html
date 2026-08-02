@@ -66,7 +66,8 @@
       const entry = leitnerGetAllPuzzles().find(p => p.id === puzzleId);
       const el = document.getElementById('leitner-info');
       if (el && entry) {
-        el.textContent = `📦 Boîte ${entry.box}/5 — prochaine révision : ${leitnerFormatNextReview(entry.nextReview)}`;
+        el.textContent = `${leitnerBoxEmoji(entry.box)} prochaine révision : ${leitnerFormatNextReview(entry.nextReview)}`;
+        el.title = `Boîte ${entry.box}/5`;
       }
     }
 
