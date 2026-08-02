@@ -18,6 +18,9 @@
       <p class="error">{{ error }}</p>
     {% else %}
       <h1>Puzzle {{ puzzle_id }} <small>(rating {{ rating }})</small></h1>
+      {% if source_username and source_username != lichess_username %}
+        <p class="hint">Compte : {{ source_username }}</p>
+      {% endif %}
       <p class="themes">{{ themes | join(', ') }}</p>
       <p>
         <a href="https://lichess.org/training/{{ puzzle_id }}" target="_blank" rel="noopener">
@@ -45,6 +48,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
   <script src="{{ url_for('static', filename='leitner.js') }}"></script>
+  <script src="{{ url_for('static', filename='sync.js') }}"></script>
 
   {% if not error %}
   <script>
@@ -58,9 +62,12 @@
     let resultRecorded = false;    // évite de comptabiliser deux fois
 
     // S'assure que ce puzzle est bien suivi (utile si on arrive ici via un
-    // lien direct plutôt que depuis la liste des puzzles ratés).
-    leitnerTrackFailedPuzzle(puzzleId, puzzleMeta);
-    updateLeitnerInfo();
+    // lien direct plutôt que depuis la liste des puzzles ratés). On attend
+    // la synchro premium pour ne pas afficher un niveau obsolète un instant.
+    syncInit().then(() => {
+      syncTrackFailedPuzzle(puzzleId, puzzleMeta);
+      updateLeitnerInfo();
+    });
 
     function updateLeitnerInfo() {
       const entry = leitnerGetAllPuzzles().find(p => p.id === puzzleId);
@@ -74,7 +81,7 @@
     function recordOnce(success) {
       if (resultRecorded) return;
       resultRecorded = true;
-      leitnerRecordResult(puzzleId, success, puzzleMeta);
+      syncRecordResult(puzzleId, success, puzzleMeta);
       updateLeitnerInfo();
     }
 

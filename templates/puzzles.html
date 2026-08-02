@@ -26,6 +26,35 @@
       <p class="error">{{ error }}</p>
     {% endif %}
 
+    {% if is_premium %}
+      <section id="linked-accounts-section">
+        <h2>🔗 Comptes Lichess liés ({{ 1 + linked_accounts|length }}/{{ max_linked_accounts }})</h2>
+        <ul class="linked-accounts-list">
+          <li class="linked-account-chip primary">{{ lichess_username }} <span class="hint">(principal)</span></li>
+          {% for u in linked_accounts %}
+            <li class="linked-account-chip">
+              {{ u }}
+              <form method="post" action="{{ url_for('unlink_account', linked_username=u) }}" style="display:inline;">
+                <button type="submit" class="unlink-btn" title="Délier ce compte">✕</button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+        {% if 1 + linked_accounts|length < max_linked_accounts %}
+          <a class="btn small" href="{{ url_for('link_account') }}">+ Lier un autre compte</a>
+        {% else %}
+          <p class="hint">Nombre maximum de comptes atteint.</p>
+        {% endif %}
+        {% if link_error == 'max_reached' %}
+          <p class="error">Nombre maximum de comptes déjà atteint.</p>
+        {% elif link_error == 'save_failed' %}
+          <p class="error">Échec de l'enregistrement du compte lié, réessayez.</p>
+        {% elif linked_username %}
+          <p class="hint">✅ Compte "{{ linked_username }}" lié avec succès.</p>
+        {% endif %}
+      </section>
+    {% endif %}
+
     <!-- Toast "nouveaux puzzles détectés", masqué par défaut -->
     <div id="toast" class="toast" style="display:none;"></div>
 
@@ -61,6 +90,9 @@
                   <div class="mini-board-slot"></div>
                 </a>
                 <span class="rating-label">Rating : {{ p.rating if p.rating is not none else '?' }}</span>
+                {% if linked_accounts %}
+                  <span class="hint account-label">{{ entry['_source_username'] }}</span>
+                {% endif %}
                 <span class="box-badge" data-box-for="{{ p.id }}"></span>
               </div>
               <div class="card-actions">
@@ -81,9 +113,12 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
   <script src="{{ url_for('static', filename='leitner.js') }}"></script>
   <script src="{{ url_for('static', filename='board-preview.js') }}"></script>
+  <script src="{{ url_for('static', filename='sync.js') }}"></script>
   <script>
+   syncInit().then(function () {
     // 1) Détecte les puzzles nouvellement ratés (absents du suivi avant ce
-    //    chargement) et enregistre tout le monde dans le localStorage.
+    //    chargement) et enregistre tout le monde (localStorage, + Supabase
+    //    si compte premium).
     const newIds = [];
     document.querySelectorAll('#recent-list .puzzle-card').forEach(card => {
       const id = card.dataset.puzzleId;
@@ -91,7 +126,7 @@
       const themes = card.dataset.themes ? card.dataset.themes.split(',') : [];
       const fen = card.dataset.fen || null;
       if (!leitnerHasPuzzle(id)) newIds.push(id);
-      leitnerTrackFailedPuzzle(id, { rating, themes, fen });
+      syncTrackFailedPuzzle(id, { rating, themes, fen });
     });
 
     if (newIds.length > 0) {
@@ -142,7 +177,7 @@
           slot.classList.remove('mini-board-loading');
           if (info.fen) {
             slot.appendChild(renderMiniBoard(info.fen));
-            leitnerSetFen(puzzleId, info.fen);
+            syncSetFen(puzzleId, info.fen);
           } else {
             slot.classList.add('mini-board-empty');
           }
@@ -331,6 +366,7 @@
 
     initCarousel(document.getElementById('recent-list'));
     initCarousel(document.getElementById('due-list'));
+   }); // fin syncInit().then()
 
     // 7) Popovers "Thèmes" : un seul ouvert à la fois, fermeture au clic
     //    en dehors ou en ré-appuyant sur le bouton.

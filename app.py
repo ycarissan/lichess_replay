@@ -41,6 +41,75 @@ AUTHORIZE_URL = "https://lichess.org/oauth"
 TOKEN_URL = "https://lichess.org/api/token"
 API_BASE = "https://lichess.org/api"
 SCOPE = "puzzle:read"
+MAX_LINKED_ACCOUNTS = 4  # total, compte principal inclus (fonctionnalité premium)
+
+# Mêmes intervalles que static/leitner.js (système de Leitner, 5 boîtes).
+LEITNER_INTERVALS_DAYS = {1: 1, 2: 3, 3: 7, 4: 16, 5: 35}
+LEITNER_MAX_BOX = 5
+
+
+def _leitner_next_review(box):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(days=LEITNER_INTERVALS_DAYS[box])).isoformat()
+
+
+def is_premium_user(username):
+    """Vérifie le statut premium dans Supabase (table premium_users).
+    Renvoie False si Supabase n'est pas configuré, si l'utilisateur n'est
+    pas identifié, ou en cas d'erreur (fail-safe : pas premium par défaut)."""
+    if not username:
+        return False
+    sb = get_supabase()
+    if not sb:
+        return False
+    try:
+        resp = (
+            sb.table("premium_users")
+            .select("is_premium")
+            .eq("lichess_username", username)
+            .limit(1)
+            .execute()
+        )
+        return bool(resp.data and resp.data[0].get("is_premium"))
+    except Exception:
+        return False
+
+
+def get_linked_accounts(primary_username):
+    """Renvoie la liste des comptes Lichess liés au compte premium
+    [{"username": ..., "access_token": ...}, ...], hors compte principal.
+    Liste vide si non premium, Supabase indisponible, ou erreur."""
+    sb = get_supabase()
+    if not sb or not primary_username:
+        return []
+    try:
+        resp = (
+            sb.table("linked_lichess_accounts")
+            .select("linked_username, access_token")
+            .eq("premium_username", primary_username)
+            .execute()
+        )
+        return [
+            {"username": row["linked_username"], "access_token": row["access_token"]}
+            for row in (resp.data or [])
+        ]
+    except Exception:
+        return []
+
+
+def get_all_accounts_for_session():
+    """Renvoie la liste de TOUS les comptes utilisables pour cette session
+    (compte principal + comptes liés si premium), sous la forme
+    [{"username": ..., "access_token": ...}, ...]. Le compte principal est
+    toujours en première position."""
+    accounts = [{
+        "username": session.get("lichess_username"),
+        "access_token": session.get("access_token"),
+    }]
+    primary = session.get("lichess_username")
+    if is_premium_user(primary):
+        accounts.extend(get_linked_accounts(primary))
+    return accounts
 
 
 # --- Utilitaires PKCE ----------------------------------------------------
@@ -62,11 +131,35 @@ def index():
 
 @app.route("/login")
 def login():
+    return _start_oauth(linking=False)
+
+
+@app.route("/link-account")
+def link_account():
+    """Démarre une nouvelle authentification OAuth pour LIER un compte
+    Lichess supplémentaire au compte premium actuellement connecté, au
+    lieu de remplacer la session en cours."""
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+    if not is_premium_user(session.get("lichess_username")):
+        return redirect(url_for("puzzles"))
+
+    primary = session.get("lichess_username")
+    total = 1 + len(get_linked_accounts(primary))
+    if total >= MAX_LINKED_ACCOUNTS:
+        return redirect(url_for("puzzles", link_error="max_reached"))
+
+    session["primary_username"] = primary
+    return _start_oauth(linking=True)
+
+
+def _start_oauth(linking):
     code_verifier, code_challenge = generate_pkce_pair()
     state = secrets.token_urlsafe(24)
 
     session["code_verifier"] = code_verifier
     session["oauth_state"] = state
+    session["linking_mode"] = linking
 
     params = {
         "response_type": "code",
@@ -113,10 +206,64 @@ def callback():
         ), 400
 
     token_data = token_resp.json()
-    session["access_token"] = token_data["access_token"]
+    new_access_token = token_data["access_token"]
+    linking_mode = session.pop("linking_mode", False)
     session.pop("code_verifier", None)
     session.pop("oauth_state", None)
 
+    # Récupère le pseudo Lichess du compte qu'on vient d'authentifier.
+    new_username = None
+    try:
+        account_resp = requests.get(
+            f"{API_BASE}/account",
+            headers={"Authorization": f"Bearer {new_access_token}"},
+            timeout=10,
+        )
+        if account_resp.status_code == 200:
+            new_username = account_resp.json().get("username")
+    except requests.RequestException:
+        pass
+
+    if linking_mode:
+        # On lie ce compte au compte premium déjà connecté, SANS remplacer
+        # la session en cours (le compte principal reste actif).
+        primary = session.pop("primary_username", None)
+        if primary and new_username and new_username != primary:
+            sb = get_supabase()
+            if sb:
+                try:
+                    sb.table("linked_lichess_accounts").upsert({
+                        "premium_username": primary,
+                        "linked_username": new_username,
+                        "access_token": new_access_token,
+                    }, on_conflict="premium_username,linked_username").execute()
+                except Exception:
+                    return redirect(url_for("puzzles", link_error="save_failed"))
+        return redirect(url_for("puzzles", linked=new_username or "1"))
+
+    # Connexion normale (compte principal).
+    session["access_token"] = new_access_token
+    session["lichess_username"] = new_username
+
+    return redirect(url_for("puzzles"))
+
+
+@app.route("/unlink-account/<linked_username>", methods=["POST"])
+def unlink_account(linked_username):
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+    primary = session.get("lichess_username")
+    if not is_premium_user(primary):
+        return redirect(url_for("puzzles"))
+
+    sb = get_supabase()
+    if sb:
+        try:
+            sb.table("linked_lichess_accounts").delete().eq(
+                "premium_username", primary
+            ).eq("linked_username", linked_username).execute()
+        except Exception:
+            pass
     return redirect(url_for("puzzles"))
 
 
@@ -132,38 +279,76 @@ def puzzles():
     if not access_token:
         return redirect(url_for("index"))
 
-    headers = {"Authorization": f"Bearer {access_token}"}
-
-    # On demande un peu de marge (max=200) car l'endpoint ne filtre pas
-    # nativement sur "raté uniquement" : le filtrage se fait côté client.
-    resp = requests.get(
-        f"{API_BASE}/puzzle/activity",
-        headers=headers,
-        params={"max": 200},
-        timeout=20,
-        stream=True,
-    )
-
-    if resp.status_code == 401:
-        session.clear()
-        return render_template("index.html", error="Session expirée, merci de vous reconnecter."), 401
-
-    if resp.status_code != 200:
-        return render_template("puzzles.html", error=f"Erreur API Lichess ({resp.status_code})", failed=[])
+    primary_username = session.get("lichess_username")
+    premium = is_premium_user(primary_username)
+    accounts = get_all_accounts_for_session() if premium else [
+        {"username": primary_username, "access_token": access_token}
+    ]
 
     import json
 
-    failed = []
-    for line in resp.iter_lines():
-        if not line:
+    all_failed = []
+    session_expired = False
+    primary_status = None
+    for account in accounts:
+        headers = {"Authorization": f"Bearer {account['access_token']}"}
+        # On demande un peu de marge (max=200) car l'endpoint ne filtre pas
+        # nativement sur "raté uniquement" : le filtrage se fait côté client.
+        resp = requests.get(
+            f"{API_BASE}/puzzle/activity",
+            headers=headers,
+            params={"max": 200},
+            timeout=20,
+            stream=True,
+        )
+        if account["username"] == primary_username:
+            primary_status = resp.status_code
+        if resp.status_code == 401:
+            if account["username"] == primary_username:
+                session_expired = True
+            continue  # un compte lié expiré ne doit pas bloquer les autres
+        if resp.status_code != 200:
             continue
-        entry = json.loads(line)
-        if entry.get("win") is False:
-            failed.append(entry)
-        if len(failed) >= 10:
-            break  # déjà triés du plus récent au plus ancien par l'API
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            entry = json.loads(line)
+            if entry.get("win") is False:
+                entry["_source_username"] = account["username"]
+                all_failed.append(entry)
 
-    return render_template("puzzles.html", failed=failed, error=None)
+    if session_expired:
+        session.clear()
+        return render_template("index.html", error="Session expirée, merci de vous reconnecter."), 401
+
+    if not premium and primary_status not in (200, None):
+        return render_template(
+            "puzzles.html",
+            error=f"Erreur API Lichess ({primary_status})",
+            failed=[],
+            is_premium=False,
+            lichess_username=primary_username,
+            linked_accounts=[],
+            max_linked_accounts=MAX_LINKED_ACCOUNTS,
+            link_error=None,
+            linked_username=None,
+        )
+
+    # Fusionne et garde les 10 plus récents tous comptes confondus.
+    all_failed.sort(key=lambda e: e.get("date", 0), reverse=True)
+    failed = all_failed[:10]
+
+    return render_template(
+        "puzzles.html",
+        failed=failed,
+        error=None,
+        is_premium=premium,
+        lichess_username=primary_username,
+        linked_accounts=[a["username"] for a in accounts[1:]] if premium else [],
+        max_linked_accounts=MAX_LINKED_ACCOUNTS,
+        link_error=request.args.get("link_error"),
+        linked_username=request.args.get("linked"),
+    )
 
 
 def _find_puzzle_entry(puzzle_id, access_token):
@@ -190,6 +375,16 @@ def _find_puzzle_entry(puzzle_id, access_token):
     return None
 
 
+def _find_puzzle_entry_multi(puzzle_id, accounts):
+    """Comme _find_puzzle_entry, mais essaie chaque compte (principal puis
+    liés) jusqu'à trouver le puzzle. Renvoie (entry, source_username)."""
+    for account in accounts:
+        entry = _find_puzzle_entry(puzzle_id, account["access_token"])
+        if entry is not None:
+            return entry, account["username"]
+    return None, None
+
+
 @app.route("/api/puzzle-info/<puzzle_id>")
 def api_puzzle_info(puzzle_id):
     """Endpoint JSON léger : renvoie fen/rating/themes d'un puzzle précis.
@@ -200,7 +395,7 @@ def api_puzzle_info(puzzle_id):
     if not access_token:
         return {"error": "not_authenticated"}, 401
 
-    entry = _find_puzzle_entry(puzzle_id, access_token)
+    entry, _ = _find_puzzle_entry_multi(puzzle_id, get_all_accounts_for_session())
     if entry is None:
         return {"error": "not_found"}, 404
 
@@ -213,13 +408,158 @@ def api_puzzle_info(puzzle_id):
     }
 
 
+@app.route("/api/leitner/status")
+def api_leitner_status():
+    """Indique si l'utilisateur connecté est premium (stockage Supabase
+    multi-appareils) ou non (stockage local uniquement)."""
+    if "access_token" not in session:
+        return {"error": "not_authenticated"}, 401
+    username = session.get("lichess_username")
+    return {
+        "username": username,
+        "premium": is_premium_user(username),
+    }
+
+
+def _require_premium():
+    """Renvoie (username, None) si OK, sinon (None, (response, status))."""
+    if "access_token" not in session:
+        return None, ({"error": "not_authenticated"}, 401)
+    username = session.get("lichess_username")
+    if not is_premium_user(username):
+        return None, ({"error": "not_premium"}, 403)
+    sb = get_supabase()
+    if not sb:
+        return None, ({"error": "supabase_unavailable"}, 503)
+    return username, None
+
+
+@app.route("/api/leitner/data")
+def api_leitner_data():
+    """Renvoie tout le suivi Leitner de l'utilisateur premium, au même
+    format que le localStorage côté client (objet clé = puzzle_id)."""
+    username, err = _require_premium()
+    if err:
+        return err
+
+    sb = get_supabase()
+    resp = sb.table("leitner_progress").select("*").eq("lichess_username", username).execute()
+
+    data = {}
+    for row in resp.data or []:
+        data[row["puzzle_id"]] = {
+            "box": row["box"],
+            "nextReview": row["next_review"],
+            "rating": row.get("rating"),
+            "themes": row.get("themes") or [],
+            "fen": row.get("fen"),
+        }
+    return {"data": data}
+
+
+@app.route("/api/leitner/track", methods=["POST"])
+def api_leitner_track():
+    """Équivalent premium de leitnerTrackFailedPuzzle() : ajoute un puzzle
+    raté s'il n'existe pas déjà (ne l'écrase pas s'il existe)."""
+    username, err = _require_premium()
+    if err:
+        return err
+
+    body = request.get_json(silent=True) or {}
+    puzzle_id = body.get("puzzle_id")
+    if not puzzle_id:
+        return {"error": "missing_puzzle_id"}, 400
+
+    sb = get_supabase()
+    existing = (
+        sb.table("leitner_progress")
+        .select("puzzle_id")
+        .eq("lichess_username", username)
+        .eq("puzzle_id", puzzle_id)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return {"status": "already_tracked"}
+
+    sb.table("leitner_progress").insert({
+        "lichess_username": username,
+        "puzzle_id": puzzle_id,
+        "box": 1,
+        "next_review": _leitner_next_review(1),
+        "rating": body.get("rating"),
+        "themes": body.get("themes") or [],
+        "fen": body.get("fen"),
+    }).execute()
+    return {"status": "tracked"}
+
+
+@app.route("/api/leitner/record", methods=["POST"])
+def api_leitner_record():
+    """Équivalent premium de leitnerRecordResult() : met à jour la boîte et
+    la prochaine révision selon la réussite ou non."""
+    username, err = _require_premium()
+    if err:
+        return err
+
+    body = request.get_json(silent=True) or {}
+    puzzle_id = body.get("puzzle_id")
+    success = bool(body.get("success"))
+    if not puzzle_id:
+        return {"error": "missing_puzzle_id"}, 400
+
+    sb = get_supabase()
+    existing = (
+        sb.table("leitner_progress")
+        .select("box")
+        .eq("lichess_username", username)
+        .eq("puzzle_id", puzzle_id)
+        .limit(1)
+        .execute()
+    )
+    current_box = existing.data[0]["box"] if existing.data else 1
+    new_box = min(current_box + 1, LEITNER_MAX_BOX) if success else 1
+
+    sb.table("leitner_progress").upsert({
+        "lichess_username": username,
+        "puzzle_id": puzzle_id,
+        "box": new_box,
+        "next_review": _leitner_next_review(new_box),
+        "rating": body.get("rating"),
+        "themes": body.get("themes") or [],
+        "fen": body.get("fen"),
+    }, on_conflict="lichess_username,puzzle_id").execute()
+
+    return {"status": "recorded", "box": new_box}
+
+
+@app.route("/api/leitner/set-fen", methods=["POST"])
+def api_leitner_set_fen():
+    """Complète le FEN d'un puzzle déjà suivi (rattrapage aperçu manquant)."""
+    username, err = _require_premium()
+    if err:
+        return err
+
+    body = request.get_json(silent=True) or {}
+    puzzle_id = body.get("puzzle_id")
+    fen = body.get("fen")
+    if not puzzle_id or not fen:
+        return {"error": "missing_fields"}, 400
+
+    sb = get_supabase()
+    sb.table("leitner_progress").update({"fen": fen}).eq(
+        "lichess_username", username
+    ).eq("puzzle_id", puzzle_id).execute()
+    return {"status": "updated"}
+
+
 @app.route("/replay/<puzzle_id>")
 def replay(puzzle_id):
     access_token = session.get("access_token")
     if not access_token:
         return redirect(url_for("index"))
 
-    target = _find_puzzle_entry(puzzle_id, access_token)
+    target, source_username = _find_puzzle_entry_multi(puzzle_id, get_all_accounts_for_session())
 
     if target is None:
         return render_template("replay.html", error="Puzzle introuvable.", puzzle=None)
@@ -246,6 +586,9 @@ def replay(puzzle_id):
         solution=solution,
         rating=puzzle.get("rating"),
         themes=puzzle.get("themes", []),
+        is_premium=is_premium_user(session.get("lichess_username")),
+        lichess_username=session.get("lichess_username"),
+        source_username=source_username,
     )
 
 

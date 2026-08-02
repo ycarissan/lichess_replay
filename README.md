@@ -100,7 +100,85 @@ Pour l'activer :
 4. Ajoutez `SUPABASE_URL` et `SUPABASE_KEY` dans les variables d'environnement
    de Render (jamais en dur dans le code ni commit dans Git).
 
+## Système premium (stockage multi-appareils via Supabase)
+
+Architecture à deux niveaux :
+
+| | Gratuit | Premium |
+|---|---|---|
+| Stockage du suivi Leitner | `localStorage` (navigateur uniquement) | Supabase (synchronisé sur tous les appareils) |
+| Reconnexion sur un autre appareil | Historique reparti de zéro | Historique retrouvé automatiquement |
+
+**Aucun système de paiement n'est implémenté ici** — seule la couche de données est prête. Le statut premium est déterminé par la présence (et `is_premium = true`) d'une ligne dans la table `premium_users`, que vous ajoutez manuellement pour l'instant (ou via un futur webhook Stripe/autre, à brancher séparément).
+
+### Tables SQL à créer (en plus de `replayed_puzzles`)
+
+```sql
+create table premium_users (
+  lichess_username text primary key,
+  is_premium boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table premium_users enable row level security;
+
+create table leitner_progress (
+  id bigint generated always as identity primary key,
+  lichess_username text not null,
+  puzzle_id text not null,
+  box int not null default 1,
+  next_review timestamptz not null default now(),
+  rating int,
+  themes text[],
+  fen text,
+  updated_at timestamptz not null default now(),
+  unique (lichess_username, puzzle_id)
+);
+alter table leitner_progress enable row level security;
+```
+
+RLS activé sans policy : seule la clé secrète/`service_role` (utilisée par le serveur Flask) peut y accéder, ce qui est le comportement voulu.
+
+### Accorder le statut premium à un utilisateur
+
+Dans **Table Editor → premium_users**, ajoutez une ligne :
+```sql
+insert into premium_users (lichess_username, is_premium) values ('VotrePseudoLichess', true);
+```
+
+### Comment ça fonctionne côté app
+
+- `GET /api/leitner/status` : indique si l'utilisateur connecté est premium.
+- Si premium : au chargement de `/puzzles` et `/replay/<id>`, les données Supabase sont rapatriées et **remplacent** le cache local (Supabase fait autorité). Chaque nouvelle action (puzzle raté détecté, résolution, échec) est ensuite écrite à la fois en local (rapidité d'affichage) et sur Supabase (synchro).
+- Si gratuit : comportement inchangé, 100% `localStorage`.
+
+### Comptes Lichess multiples (premium, jusqu'à 4)
+
+```sql
+create table linked_lichess_accounts (
+  id bigint generated always as identity primary key,
+  premium_username text not null,
+  linked_username text not null,
+  access_token text not null,
+  created_at timestamptz not null default now(),
+  unique (premium_username, linked_username)
+);
+alter table linked_lichess_accounts enable row level security;
+```
+
+⚠️ Cette table contient des **tokens d'accès Lichess** (mêmes privilèges que
+le token de session : lecture de l'activité de puzzles). RLS + clé secrète
+uniquement protège l'accès réseau, mais les tokens sont stockés en clair
+dans la base — acceptable pour ce projet, mais à chiffrer si vous passez en
+production sérieuse.
+
+Un utilisateur premium peut lier jusqu'à `MAX_LINKED_ACCOUNTS` (4 par
+défaut, modifiable dans `app.py`) comptes Lichess. Les 10 derniers puzzles
+ratés affichés sont fusionnés et triés par date sur l'ensemble des comptes
+liés, avec une étiquette indiquant le compte d'origine sur chaque carte.
+
 ## Limites connues
+
+
 
 - Le token est gardé en session Flask (cookie signé) — convient pour un
   usage local/personnel, pas pour de la production multi-utilisateurs sans

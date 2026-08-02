@@ -165,6 +165,44 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
 
 #themes-chart { max-width: 100%; }
 
+/* --- Comptes Lichess liés (premium) --- */
+.linked-accounts-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0.5rem 0;
+}
+
+.linked-account-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #eef3ea;
+  color: #3b6230;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+}
+
+.linked-account-chip.primary { background: #4a7a3c; color: #fff; }
+
+.unlink-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+  opacity: 0.7;
+}
+.unlink-btn:hover { opacity: 1; }
+
+.account-label { font-style: italic; }
+
 /* --- Carrousel de puzzles : une carte à la fois, flèches superposées --- */
 .carousel-wrapper {
   position: relative;
