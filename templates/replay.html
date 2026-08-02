@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Replay puzzle — Lichess</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet"
@@ -24,7 +25,7 @@
         </a>
       </p>
 
-      <div id="board" style="width: 400px;"></div>
+      <div id="board" class="board-container"></div>
 
       <div class="controls">
         <button id="btn-reset">⏮ Recommencer</button>
@@ -208,6 +209,14 @@
     document.getElementById('btn-solution').addEventListener('click', showSolutionStep);
     document.getElementById('btn-reset').addEventListener('click', resetBoard);
     resetBoard();
+
+    // Réajuste la taille de l'échiquier quand la fenêtre change de taille
+    // (rotation d'écran sur mobile, redimensionnement de fenêtre, etc.).
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => board.resize(), 150);
+    });
   </script>
   {% endif %}
 </body>
