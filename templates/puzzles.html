@@ -18,6 +18,9 @@
 
       <div class="topbar-actions" id="topbar-actions">
         <a class="btn small" href="{{ url_for('puzzles') }}">🔄 Actualiser la liste</a>
+        <button type="button" id="premium-toggle-btn" class="btn small">
+          {% if is_premium %}⭐ Repasser en gratuit{% else %}⭐ Passer en premium (test){% endif %}
+        </button>
         <a class="btn small" href="{{ url_for('logout') }}">Se déconnecter</a>
       </div>
     </header>
@@ -410,6 +413,21 @@
           topbarActions.classList.remove('menu-open');
           menuToggle.setAttribute('aria-expanded', 'false');
         }
+      });
+    }
+    // 9) Bascule premium/gratuit (temporaire, en attendant un vrai paiement).
+    const premiumToggleBtn = document.getElementById('premium-toggle-btn');
+    if (premiumToggleBtn) {
+      premiumToggleBtn.addEventListener('click', () => {
+        premiumToggleBtn.disabled = true;
+        premiumToggleBtn.textContent = '...';
+        fetch('/api/premium/toggle', { method: 'POST' })
+          .then(r => r.ok ? r.json() : Promise.reject(r.status))
+          .then(() => { window.location.reload(); })
+          .catch(() => {
+            alert("Impossible de changer le statut premium (Supabase non configuré ou erreur serveur).");
+            premiumToggleBtn.disabled = false;
+          });
       });
     }
   </script>

@@ -267,6 +267,35 @@ def unlink_account(linked_username):
     return redirect(url_for("puzzles"))
 
 
+@app.route("/api/premium/toggle", methods=["POST"])
+def api_premium_toggle():
+    """Bascule le statut premium de l'utilisateur connecté.
+    TEMPORAIRE : en attendant un vrai système de paiement, ce toggle sert
+    uniquement à tester le mode premium. À retirer / protéger avant toute
+    mise en production réelle avec de vrais utilisateurs."""
+    if "access_token" not in session:
+        return {"error": "not_authenticated"}, 401
+
+    username = session.get("lichess_username")
+    if not username:
+        return {"error": "no_username"}, 400
+
+    sb = get_supabase()
+    if not sb:
+        return {"error": "supabase_unavailable"}, 503
+
+    current = is_premium_user(username)
+    try:
+        sb.table("premium_users").upsert({
+            "lichess_username": username,
+            "is_premium": not current,
+        }, on_conflict="lichess_username").execute()
+    except Exception:
+        return {"error": "toggle_failed"}, 500
+
+    return {"premium": not current}
+
+
 @app.route("/logout")
 def logout():
     session.clear()
