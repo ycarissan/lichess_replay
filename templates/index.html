@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Lichess — Puzzles ratés</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="center-box">
+    <h1>♟️ Rejouer ses puzzles ratés</h1>
+    <p>Connectez-vous avec votre compte Lichess pour récupérer et rejouer vos
+       10 derniers puzzles ratés.</p>
+
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <a class="btn" href="{{ url_for('login') }}">Se connecter avec Lichess</a>
+  </main>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Puzzles ratés — Lichess</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <h1>Vos 10 derniers puzzles ratés</h1>
+      <a class="btn small" href="{{ url_for('logout') }}">Se déconnecter</a>
+    </header>
+
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if not failed %}
+      <p>Aucun puzzle raté trouvé dans votre historique récent 🎉</p>
+    {% else %}
+      <ul class="puzzle-list">
+        {% for entry in failed %}
+          {% set p = entry.puzzle %}
+          <li class="puzzle-card">
+            <div class="puzzle-info">
+              <strong>Puzzle {{ p.id }}</strong>
+              <span>Rating : {{ p.rating }}</span>
+              <span class="themes">{{ p.themes | join(', ') }}</span>
+            </div>
+            <a class="btn" href="{{ url_for('replay', puzzle_id=p.id) }}">Rejouer</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </main>
+</body>
+</html>

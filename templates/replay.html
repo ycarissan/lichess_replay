@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Replay puzzle — Lichess</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <a class="btn small" href="{{ url_for('puzzles') }}">&larr; Retour à la liste</a>
+    </header>
+
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% else %}
+      <h1>Puzzle {{ puzzle_id }} <small>(rating {{ rating }})</small></h1>
+      <p class="themes">{{ themes | join(', ') }}</p>
+
+      <div id="board" style="width: 400px;"></div>
+
+      <div class="controls">
+        <button id="btn-reset">⏮ Recommencer</button>
+        <button id="btn-next">Coup suivant ⏭</button>
+        <span id="status"></span>
+      </div>
+
+      <p class="hint">
+        Les coups de la solution (format UCI) sont rejoués un par un,
+        dans l'ordre : {{ solution | join(' → ') }}
+      </p>
+    {% endif %}
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+
+  {% if not error %}
+  <script>
+    const startFen = {{ fen | tojson }};
+    const solution = {{ solution | tojson }};   // coups UCI, ex: "e2e4"
+    let moveIndex = 0;
+
+    const game = new Chess(startFen);
+    const board = Chessboard('board', {
+      draggable: false,
+      position: startFen,
+      pieceTheme: 'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/img/chesspieces/wikipedia/{piece}.png'
+    });
+
+    function uciToMove(uci) {
+      return {
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci.length > 4 ? uci[4] : undefined
+      };
+    }
+
+    function playNext() {
+      if (moveIndex >= solution.length) {
+        document.getElementById('status').textContent = 'Fin de la solution.';
+        return;
+      }
+      const mv = uciToMove(solution[moveIndex]);
+      const result = game.move(mv);
+      if (result) {
+        board.position(game.fen());
+        moveIndex++;
+        document.getElementById('status').textContent =
+          `Coup ${moveIndex}/${solution.length} : ${result.san}`;
+      } else {
+        document.getElementById('status').textContent =
+          'Coup illégal reçu de l\'API — vérifie le format UCI.';
+      }
+    }
+
+    function resetBoard() {
+      game.load(startFen);
+      board.position(startFen);
+      moveIndex = 0;
+      document.getElementById('status').textContent = 'Position initiale.';
+    }
+
+    document.getElementById('btn-next').addEventListener('click', playNext);
+    document.getElementById('btn-reset').addEventListener('click', resetBoard);
+    resetBoard();
+  </script>
+  {% endif %}
+</body>
+</html>
