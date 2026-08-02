@@ -85,3 +85,23 @@ h1 { font-size: 1.5rem; }
 }
 
 .hint { color: #777; font-size: 0.9rem; }
+
+section { margin-bottom: 1.5rem; }
+section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
+
+.box-badge {
+  display: inline-block;
+  background: #eef3ea;
+  color: #4a7a3c;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  width: fit-content;
+}
+
+#due-section {
+  background: #fff8e6;
+  border: 1px solid #f0dca0;
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+}

@@ -31,19 +31,45 @@
         À vous de jouer : déplacez une pièce pour trouver le coup gagnant.
         L'adversaire répondra automatiquement si votre coup est correct.
       </p>
+      <p class="hint" id="leitner-info"></p>
     {% endif %}
   </main>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+  <script src="{{ url_for('static', filename='leitner.js') }}"></script>
 
   {% if not error %}
   <script>
     const startFen = {{ fen | tojson }};
     const solution = {{ solution | tojson }};   // coups UCI, ex: "e2e4"
+    const puzzleId = {{ puzzle_id | tojson }};
+    const puzzleMeta = { rating: {{ rating | tojson }}, themes: {{ themes | tojson }} };
     let moveIndex = 0;
     let solved = false;
+    let solutionRevealed = false;  // "Voir la solution" cliqué -> compte comme échec
+    let resultRecorded = false;    // évite de comptabiliser deux fois
+
+    // S'assure que ce puzzle est bien suivi (utile si on arrive ici via un
+    // lien direct plutôt que depuis la liste des puzzles ratés).
+    leitnerTrackFailedPuzzle(puzzleId, puzzleMeta);
+    updateLeitnerInfo();
+
+    function updateLeitnerInfo() {
+      const entry = leitnerGetAllPuzzles().find(p => p.id === puzzleId);
+      const el = document.getElementById('leitner-info');
+      if (el && entry) {
+        el.textContent = `📦 Boîte ${entry.box}/5 — prochaine révision : ${leitnerFormatNextReview(entry.nextReview)}`;
+      }
+    }
+
+    function recordOnce(success) {
+      if (resultRecorded) return;
+      resultRecorded = true;
+      leitnerRecordResult(puzzleId, success, puzzleMeta);
+      updateLeitnerInfo();
+    }
 
     const game = new Chess(startFen);
 
@@ -87,6 +113,7 @@
           if (moveIndex >= solution.length) {
             solved = true;
             setStatus('✅ Puzzle résolu !');
+            if (!solutionRevealed) recordOnce(true);
           } else {
             setStatus(`L'adversaire a joué ${result.san}. À vous.`);
           }
@@ -110,6 +137,7 @@
       if (moveIndex >= solution.length) {
         solved = true;
         setStatus('✅ Bravo, puzzle résolu !');
+        if (!solutionRevealed) recordOnce(true);
       } else {
         setStatus('✔️ Bon coup !');
         playOpponentReply();
@@ -118,6 +146,10 @@
 
     // Révèle la solution restante, coup par coup, sans validation.
     function showSolutionStep() {
+      if (!solutionRevealed) {
+        solutionRevealed = true;
+        recordOnce(false);  // demander la solution compte comme un échec pour la répétition espacée
+      }
       if (moveIndex >= solution.length) {
         setStatus('Fin de la solution.');
         return;
@@ -138,6 +170,8 @@
       board.orientation(playerColor);
       moveIndex = 0;
       solved = false;
+      solutionRevealed = false;
+      resultRecorded = false;
       setStatus('À vous de jouer.');
     }
 
