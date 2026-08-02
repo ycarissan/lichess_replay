@@ -424,8 +424,12 @@
         fetch('/api/premium/toggle', { method: 'POST' })
           .then(r => r.ok ? r.json() : Promise.reject(r.status))
           .then(() => { window.location.reload(); })
-          .catch(() => {
-            alert("Impossible de changer le statut premium (Supabase non configuré ou erreur serveur).");
+          .catch((status) => {
+            let msg = "Impossible de changer le statut premium.";
+            if (status === 503) msg += "\nCause probable : Supabase n'est pas configuré (SUPABASE_URL / SUPABASE_KEY manquants sur Render).";
+            else if (status === 500) msg += "\nErreur côté serveur — consultez les logs Render pour le détail exact.";
+            else if (status === 401) msg += "\nVotre session semble expirée, reconnectez-vous.";
+            alert(msg);
             premiumToggleBtn.disabled = false;
           });
       });

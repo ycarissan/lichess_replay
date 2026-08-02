@@ -71,7 +71,8 @@ def is_premium_user(username):
             .execute()
         )
         return bool(resp.data and resp.data[0].get("is_premium"))
-    except Exception:
+    except Exception as exc:
+        app.logger.error("Échec lecture premium_users pour %s : %s", username, exc)
         return False
 
 
@@ -290,7 +291,8 @@ def api_premium_toggle():
             "lichess_username": username,
             "is_premium": not current,
         }, on_conflict="lichess_username").execute()
-    except Exception:
+    except Exception as exc:
+        app.logger.error("Échec toggle premium pour %s : %s", username, exc)
         return {"error": "toggle_failed"}, 500
 
     return {"premium": not current}
