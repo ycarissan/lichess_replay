@@ -584,6 +584,47 @@ def api_leitner_set_fen():
     return {"status": "updated"}
 
 
+@app.route("/api/leitner/push", methods=["POST"])
+def api_leitner_push():
+    """Envoie vers Supabase des entrées locales telles quelles (box et
+    next_review préservés, PAS réinitialisés) — utilisé lors du passage en
+    premium pour faire remonter l'historique local existant sans le perdre."""
+    username, err = _require_premium()
+    if err:
+        return err
+
+    body = request.get_json(silent=True) or {}
+    entries = body.get("entries") or {}
+    if not isinstance(entries, dict):
+        return {"error": "invalid_entries"}, 400
+
+    sb = get_supabase()
+    rows = []
+    for puzzle_id, e in entries.items():
+        if not isinstance(e, dict):
+            continue
+        rows.append({
+            "lichess_username": username,
+            "puzzle_id": puzzle_id,
+            "box": e.get("box", 1),
+            "next_review": e.get("nextReview") or _leitner_next_review(1),
+            "rating": e.get("rating"),
+            "themes": e.get("themes") or [],
+            "fen": e.get("fen"),
+        })
+
+    if rows:
+        try:
+            sb.table("leitner_progress").upsert(
+                rows, on_conflict="lichess_username,puzzle_id"
+            ).execute()
+        except Exception as exc:
+            app.logger.error("Échec push leitner en masse pour %s : %s", username, exc)
+            return {"error": "push_failed"}, 500
+
+    return {"status": "pushed", "count": len(rows)}
+
+
 @app.route("/replay/<puzzle_id>")
 def replay(puzzle_id):
     access_token = session.get("access_token")
