@@ -105,3 +105,26 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
   border-radius: 10px;
   padding: 1rem 1.2rem;
 }
+
+.toast {
+  position: fixed;
+  top: 1.2rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  background: #2b2b2b;
+  color: #fff;
+  padding: 0.7rem 1.2rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  z-index: 1000;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+}
+
+.toast.toast-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+#themes-chart { max-width: 100%; }

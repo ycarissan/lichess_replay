@@ -16,6 +16,9 @@
       <p class="error">{{ error }}</p>
     {% endif %}
 
+    <!-- Toast "nouveaux puzzles détectés", masqué par défaut -->
+    <div id="toast" class="toast" style="display:none;"></div>
+
     <!-- Section générée en JS à partir du localStorage : puzzles dus aujourd'hui -->
     <section id="due-section" style="display:none;">
       <h2>📅 À réviser aujourd'hui</h2>
@@ -23,24 +26,32 @@
     </section>
 
     <section>
+      <h2>📊 Statistiques par thème</h2>
+      <canvas id="themes-chart" height="120"></canvas>
+      <p id="no-stats" class="hint" style="display:none;">Pas encore assez de données pour un graphique.</p>
+    </section>
+
+    <section>
       <h2>🕘 10 derniers puzzles ratés (Lichess)</h2>
       {% if not failed %}
         <p>Aucun puzzle raté trouvé dans votre historique récent 🎉</p>
       {% else %}
-        <ul class="puzzle-list" id="recent-list">
+        <ul class="puzzle-list" id="recent-list"
+            data-queue="{{ failed | map(attribute='puzzle.id') | join(',') }}">
           {% for entry in failed %}
             {% set p = entry.puzzle %}
             <li class="puzzle-card"
                 data-puzzle-id="{{ p.id }}"
                 data-rating="{{ p.rating }}"
-                data-themes="{{ p.themes | join(',') }}">
+                data-themes="{{ p.themes | join(',') }}"
+                data-pos="{{ loop.index0 }}">
               <div class="puzzle-info">
                 <strong>Puzzle {{ p.id }}</strong>
                 <span>Rating : {{ p.rating }}</span>
                 <span class="themes">{{ p.themes | join(', ') }}</span>
                 <span class="box-badge" data-box-for="{{ p.id }}"></span>
               </div>
-              <a class="btn" href="{{ url_for('replay', puzzle_id=p.id) }}">Rejouer</a>
+              <a class="btn replay-link" href="{{ url_for('replay', puzzle_id=p.id) }}">Rejouer</a>
             </li>
           {% endfor %}
         </ul>
@@ -48,16 +59,32 @@
     </section>
   </main>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
   <script src="{{ url_for('static', filename='leitner.js') }}"></script>
   <script>
-    // 1) Enregistre dans le suivi (localStorage) tout puzzle raté qui n'y
-    //    figure pas encore, à partir de la liste renvoyée par Lichess.
+    // 1) Détecte les puzzles nouvellement ratés (absents du suivi avant ce
+    //    chargement) et enregistre tout le monde dans le localStorage.
+    const newIds = [];
     document.querySelectorAll('#recent-list .puzzle-card').forEach(card => {
       const id = card.dataset.puzzleId;
       const rating = parseInt(card.dataset.rating, 10) || null;
       const themes = card.dataset.themes ? card.dataset.themes.split(',') : [];
+      if (!leitnerHasPuzzle(id)) newIds.push(id);
       leitnerTrackFailedPuzzle(id, { rating, themes });
     });
+
+    if (newIds.length > 0) {
+      const toast = document.getElementById('toast');
+      toast.textContent = newIds.length === 1
+        ? '🆕 1 nouveau puzzle raté disponible !'
+        : `🆕 ${newIds.length} nouveaux puzzles ratés disponibles !`;
+      toast.style.display = 'block';
+      requestAnimationFrame(() => toast.classList.add('toast-visible'));
+      setTimeout(() => {
+        toast.classList.remove('toast-visible');
+        setTimeout(() => { toast.style.display = 'none'; }, 300);
+      }, 3000);
+    }
 
     // 2) Affiche le niveau (boîte) à côté de chaque puzzle de la liste Lichess.
     const allTracked = Object.fromEntries(
@@ -71,11 +98,26 @@
       }
     });
 
-    // 3) Construit la section "à réviser aujourd'hui" à partir du localStorage.
+    // 3) Ajoute les paramètres de file (queue/pos) aux liens "Rejouer" pour
+    //    permettre l'enchaînement automatique au puzzle suivant en cas de
+    //    réussite (géré dans replay.html).
+    const recentList = document.getElementById('recent-list');
+    if (recentList) {
+      const queue = recentList.dataset.queue;
+      document.querySelectorAll('#recent-list .puzzle-card').forEach(card => {
+        const link = card.querySelector('.replay-link');
+        const pos = card.dataset.pos;
+        link.href += `?queue=${encodeURIComponent(queue)}&pos=${pos}`;
+      });
+    }
+
+    // 4) Construit la section "à réviser aujourd'hui" à partir du localStorage,
+    //    avec sa propre file pour l'enchaînement automatique.
     const due = leitnerGetDuePuzzles();
     if (due.length > 0) {
+      const dueQueue = due.map(p => p.id).join(',');
       const dueList = document.getElementById('due-list');
-      due.forEach(p => {
+      due.forEach((p, i) => {
         const li = document.createElement('li');
         li.className = 'puzzle-card';
         li.innerHTML = `
@@ -85,11 +127,36 @@
             <span class="themes">${(p.themes || []).join(', ')}</span>
             <span class="box-badge">Boîte ${p.box}/5</span>
           </div>
-          <a class="btn" href="/replay/${p.id}">Réviser</a>
+          <a class="btn" href="/replay/${p.id}?queue=${encodeURIComponent(dueQueue)}&pos=${i}">Réviser</a>
         `;
         dueList.appendChild(li);
       });
       document.getElementById('due-section').style.display = 'block';
+    }
+
+    // 5) Graphique des occurrences de thèmes (tous les puzzles suivis).
+    const themeCounts = leitnerGetThemeCounts();
+    const themeEntries = Object.entries(themeCounts).sort((a, b) => b[1] - a[1]);
+    if (themeEntries.length === 0) {
+      document.getElementById('themes-chart').style.display = 'none';
+      document.getElementById('no-stats').style.display = 'block';
+    } else {
+      new Chart(document.getElementById('themes-chart'), {
+        type: 'bar',
+        data: {
+          labels: themeEntries.map(([theme]) => theme),
+          datasets: [{
+            label: 'Occurrences',
+            data: themeEntries.map(([, count]) => count),
+            backgroundColor: '#4a7a3c'
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          plugins: { legend: { display: false } },
+          scales: { x: { ticks: { precision: 0 } } }
+        }
+      });
     }
   </script>
 </body>

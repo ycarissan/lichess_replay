@@ -45,6 +45,11 @@ function leitnerNextReviewDate(box) {
   return d.toISOString();
 }
 
+function leitnerHasPuzzle(puzzleId) {
+  const data = leitnerLoad();
+  return Object.prototype.hasOwnProperty.call(data, puzzleId);
+}
+
 /**
  * Enregistre un puzzle raté s'il n'existe pas encore dans le suivi.
  * Un puzzle nouvellement raté part en boîte 1, dû immédiatement.
@@ -101,6 +106,17 @@ function leitnerGetAllPuzzles() {
   return Object.entries(data)
     .map(([id, e]) => ({ id, ...e }))
     .sort((a, b) => new Date(a.nextReview) - new Date(b.nextReview));
+}
+
+/** Compte les occurrences de chaque thème parmi tous les puzzles suivis. */
+function leitnerGetThemeCounts() {
+  const counts = {};
+  leitnerGetAllPuzzles().forEach(p => {
+    (p.themes || []).forEach(t => {
+      counts[t] = (counts[t] || 0) + 1;
+    });
+  });
+  return counts;
 }
 
 function leitnerFormatNextReview(iso) {

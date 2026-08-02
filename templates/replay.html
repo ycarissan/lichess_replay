@@ -18,6 +18,11 @@
     {% else %}
       <h1>Puzzle {{ puzzle_id }} <small>(rating {{ rating }})</small></h1>
       <p class="themes">{{ themes | join(', ') }}</p>
+      <p>
+        <a href="https://lichess.org/training/{{ puzzle_id }}" target="_blank" rel="noopener">
+          Voir ce puzzle sur Lichess ↗
+        </a>
+      </p>
 
       <div id="board" style="width: 400px;"></div>
 
@@ -71,6 +76,25 @@
       updateLeitnerInfo();
     }
 
+    // Enchaînement automatique : la page est arrivée avec ?queue=id1,id2,...&pos=N
+    // (généré depuis la liste des puzzles). Une fois le puzzle résolu, on
+    // passe directement au suivant de la file.
+    const urlParams = new URLSearchParams(window.location.search);
+    const queue = (urlParams.get('queue') || '').split(',').filter(Boolean);
+    const pos = parseInt(urlParams.get('pos'), 10);
+
+    function goToNextPuzzle() {
+      if (!isNaN(pos) && queue.length > 0 && pos + 1 < queue.length) {
+        const nextId = queue[pos + 1];
+        const next = new URLSearchParams();
+        next.set('queue', queue.join(','));
+        next.set('pos', String(pos + 1));
+        window.location.href = `/replay/${nextId}?${next.toString()}`;
+      } else {
+        window.location.href = '/puzzles';
+      }
+    }
+
     const game = new Chess(startFen);
 
     // Le FEN renvoyé par l'API est déjà la position prête à être résolue :
@@ -113,7 +137,10 @@
           if (moveIndex >= solution.length) {
             solved = true;
             setStatus('✅ Puzzle résolu !');
-            if (!solutionRevealed) recordOnce(true);
+            if (!solutionRevealed) {
+              recordOnce(true);
+              setTimeout(goToNextPuzzle, 900);
+            }
           } else {
             setStatus(`L'adversaire a joué ${result.san}. À vous.`);
           }
@@ -137,7 +164,10 @@
       if (moveIndex >= solution.length) {
         solved = true;
         setStatus('✅ Bravo, puzzle résolu !');
-        if (!solutionRevealed) recordOnce(true);
+        if (!solutionRevealed) {
+          recordOnce(true);
+          setTimeout(goToNextPuzzle, 900);
+        }
       } else {
         setStatus('✔️ Bon coup !');
         playOpponentReply();
