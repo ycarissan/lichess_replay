@@ -11,6 +11,8 @@ const MINI_BOARD_GLYPHS = {
 
 function miniBoardParseFen(fen) {
   const placement = (fen || '').split(' ')[0] || '';
+  // Une position valide a toujours 8 rangées séparées par '/'.
+  if (placement.split('/').length !== 8) return [];
   return placement.split('/').map(row => {
     const cells = [];
     for (const ch of row) {
@@ -37,6 +39,10 @@ function renderMiniBoard(fen) {
   }
 
   const rows = miniBoardParseFen(fen);
+  if (rows.length === 0) {
+    board.classList.add('mini-board-empty');
+    return board;
+  }
   rows.forEach((row, r) => {
     row.forEach((cell, c) => {
       const square = document.createElement('div');
