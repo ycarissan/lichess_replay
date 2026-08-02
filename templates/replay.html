@@ -81,8 +81,19 @@
     function recordOnce(success) {
       if (resultRecorded) return;
       resultRecorded = true;
-      syncRecordResult(puzzleId, success, puzzleMeta);
-      updateLeitnerInfo();
+      // try/catch défensif : un souci réseau/synchro ne doit JAMAIS empêcher
+      // l'enchaînement vers le puzzle suivant (cause connue de "blocage"
+      // après le message de réussite si cet appel lève une exception).
+      try {
+        syncRecordResult(puzzleId, success, puzzleMeta);
+      } catch (e) {
+        console.error('recordOnce: erreur non bloquante', e);
+      }
+      try {
+        updateLeitnerInfo();
+      } catch (e) {
+        console.error('updateLeitnerInfo: erreur non bloquante', e);
+      }
     }
 
     // Enchaînement automatique : la page est arrivée avec ?queue=id1,id2,...&pos=N
