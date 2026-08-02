@@ -59,6 +59,19 @@ h1 { font-size: 1.5rem; }
   gap: 0.6rem;
 }
 
+.hamburger-btn {
+  display: none; /* visible uniquement sur mobile, voir media query */
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+  min-width: 44px;
+  min-height: 44px;
+}
+
 .btn.small { padding: 0.5rem 0.9rem; font-size: 0.95rem; margin-top: 0; min-height: 38px; }
 .btn:hover { background: #3b6230; }
 
@@ -301,9 +314,29 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
   h1 { font-size: 1.25rem; }
   section h2 { font-size: 1rem; }
 
-  .topbar { flex-direction: column; align-items: stretch; }
-  .topbar h1 { text-align: center; }
-  .topbar-actions { justify-content: center; }
+  .topbar { flex-direction: row; align-items: center; justify-content: space-between; position: relative; }
+  .topbar h1 { text-align: left; font-size: 1.1rem; margin: 0; }
+
+  .hamburger-btn { display: inline-flex; align-items: center; justify-content: center; }
+
+  .topbar-actions {
+    display: none;
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    background: #fff;
+    border: 1px solid #e2ddd0;
+    border-radius: 10px;
+    padding: 0.6rem;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    z-index: 30;
+    min-width: 220px;
+  }
+
+  .topbar-actions.menu-open { display: flex; }
+  .topbar-actions .btn.small { width: 100%; text-align: center; }
 
   .puzzle-card { flex-direction: column; align-items: stretch; text-align: center; }
   .puzzle-card .btn { width: 100%; margin-top: 0.4rem; }
