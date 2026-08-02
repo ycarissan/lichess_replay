@@ -212,11 +212,19 @@
 
     // Réajuste la taille de l'échiquier quand la fenêtre change de taille
     // (rotation d'écran sur mobile, redimensionnement de fenêtre, etc.).
+    // Le CSS garantit déjà un conteneur carré (aspect-ratio), mais on
+    // rappelle board.resize() pour que chessboard.js resynchronise ses
+    // dimensions internes (pièces, cases) sur ce nouveau carré.
     let resizeTimeout;
-    window.addEventListener('resize', () => {
+    function scheduleBoardResize(delay) {
       clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => board.resize(), 150);
-    });
+      resizeTimeout = setTimeout(() => board.resize(), delay);
+    }
+    window.addEventListener('resize', () => scheduleBoardResize(150));
+    window.addEventListener('orientationchange', () => scheduleBoardResize(300));
+    // Rappel de sécurité après le premier rendu (polices, mise en page
+    // finale sur certains navigateurs mobiles arrivant après le chargement).
+    scheduleBoardResize(300);
   </script>
   {% endif %}
 </body>

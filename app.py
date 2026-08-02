@@ -166,11 +166,10 @@ def puzzles():
     return render_template("puzzles.html", failed=failed, error=None)
 
 
-@app.route("/replay/<puzzle_id>")
-def replay(puzzle_id):
-    access_token = session.get("access_token")
-    if not access_token:
-        return redirect(url_for("index"))
+def _find_puzzle_entry(puzzle_id, access_token):
+    """Cherche un puzzle par id dans les 200 dernières activités de puzzle
+    de l'utilisateur. Retourne l'entrée complète (dict) ou None."""
+    import json
 
     headers = {"Authorization": f"Bearer {access_token}"}
     resp = requests.get(
@@ -180,18 +179,47 @@ def replay(puzzle_id):
         timeout=20,
         stream=True,
     )
+    if resp.status_code != 200:
+        return None
+    for line in resp.iter_lines():
+        if not line:
+            continue
+        entry = json.loads(line)
+        if entry.get("puzzle", {}).get("id") == puzzle_id:
+            return entry
+    return None
 
-    import json
 
-    target = None
-    if resp.status_code == 200:
-        for line in resp.iter_lines():
-            if not line:
-                continue
-            entry = json.loads(line)
-            if entry.get("puzzle", {}).get("id") == puzzle_id:
-                target = entry
-                break
+@app.route("/api/puzzle-info/<puzzle_id>")
+def api_puzzle_info(puzzle_id):
+    """Endpoint JSON léger : renvoie fen/rating/themes d'un puzzle précis.
+    Utilisé côté client pour compléter les puzzles suivis en localStorage
+    avant l'ajout de l'aperçu de position (qui n'avaient donc pas de FEN),
+    ou tout puzzle sorti de la fenêtre des 200 dernières activités."""
+    access_token = session.get("access_token")
+    if not access_token:
+        return {"error": "not_authenticated"}, 401
+
+    entry = _find_puzzle_entry(puzzle_id, access_token)
+    if entry is None:
+        return {"error": "not_found"}, 404
+
+    puzzle = entry["puzzle"]
+    return {
+        "id": puzzle_id,
+        "fen": puzzle.get("fen"),
+        "rating": puzzle.get("rating"),
+        "themes": puzzle.get("themes", []),
+    }
+
+
+@app.route("/replay/<puzzle_id>")
+def replay(puzzle_id):
+    access_token = session.get("access_token")
+    if not access_token:
+        return redirect(url_for("index"))
+
+    target = _find_puzzle_entry(puzzle_id, access_token)
 
     if target is None:
         return render_template("replay.html", error="Puzzle introuvable.", puzzle=None)

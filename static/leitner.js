@@ -45,6 +45,15 @@ function leitnerNextReviewDate(box) {
   return d.toISOString();
 }
 
+/** Met à jour uniquement le FEN d'un puzzle déjà suivi (sans toucher au reste). */
+function leitnerSetFen(puzzleId, fen) {
+  const data = leitnerLoad();
+  if (data[puzzleId] && fen) {
+    data[puzzleId].fen = fen;
+    leitnerSave(data);
+  }
+}
+
 function leitnerHasPuzzle(puzzleId) {
   const data = leitnerLoad();
   return Object.prototype.hasOwnProperty.call(data, puzzleId);

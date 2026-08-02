@@ -113,10 +113,38 @@
       }
     });
 
+    // Affiche l'aperçu si le FEN est déjà connu ; sinon va le chercher côté
+    // serveur (route /api/puzzle-info) et complète le suivi local ensuite.
+    function ensureMiniBoard(slot, puzzleId, fen) {
+      if (!slot) return;
+      if (fen) {
+        slot.appendChild(renderMiniBoard(fen));
+        return;
+      }
+      slot.classList.add('mini-board-loading');
+      slot.textContent = '…';
+      fetch(`/api/puzzle-info/${encodeURIComponent(puzzleId)}`)
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(info => {
+          slot.textContent = '';
+          slot.classList.remove('mini-board-loading');
+          if (info.fen) {
+            slot.appendChild(renderMiniBoard(info.fen));
+            leitnerSetFen(puzzleId, info.fen);
+          } else {
+            slot.classList.add('mini-board-empty');
+          }
+        })
+        .catch(() => {
+          slot.textContent = '';
+          slot.classList.remove('mini-board-loading');
+          slot.classList.add('mini-board-empty');
+        });
+    }
+
     document.querySelectorAll('#recent-list .puzzle-card').forEach(card => {
       const slot = card.querySelector('.mini-board-slot');
-      const fen = card.dataset.fen;
-      if (slot && fen) slot.appendChild(renderMiniBoard(fen));
+      ensureMiniBoard(slot, card.dataset.puzzleId, card.dataset.fen || null);
     });
 
     // 3) Ajoute les paramètres de file (queue/pos) aux liens "Rejouer" pour
@@ -156,7 +184,7 @@
           </div>
         `;
         const slot = li.querySelector('.mini-board-slot');
-        if (slot && p.fen) slot.appendChild(renderMiniBoard(p.fen));
+        ensureMiniBoard(slot, p.id, p.fen || null);
         dueList.appendChild(li);
       });
       document.getElementById('due-section').style.display = 'block';
