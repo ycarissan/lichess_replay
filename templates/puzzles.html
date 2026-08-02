@@ -52,15 +52,15 @@
             {% set p = entry.puzzle %}
             <li class="puzzle-card"
                 data-puzzle-id="{{ p.id }}"
-                data-rating="{{ p.rating }}"
+                data-rating="{{ p.rating if p.rating is not none else '' }}"
                 data-themes="{{ p.themes | join(',') }}"
-                data-fen="{{ p.fen }}"
+                data-fen="{{ p.fen or '' }}"
                 data-pos="{{ loop.index0 }}">
               <div class="puzzle-info">
                 <a class="mini-board-link" href="{{ url_for('replay', puzzle_id=p.id) }}">
                   <div class="mini-board-slot"></div>
                 </a>
-                <span class="rating-label">Rating : {{ p.rating }}</span>
+                <span class="rating-label">Rating : {{ p.rating if p.rating is not none else '?' }}</span>
                 <span class="box-badge" data-box-for="{{ p.id }}"></span>
               </div>
               <div class="card-actions">
@@ -125,8 +125,12 @@
     // serveur (route /api/puzzle-info) et complète le suivi local ensuite.
     function ensureMiniBoard(slot, puzzleId, fen) {
       if (!slot) return;
-      if (fen) {
-        slot.appendChild(renderMiniBoard(fen));
+      // Filet de sécurité : une valeur "None" a pu être stockée par erreur
+      // avant correction du bug de rendu côté serveur. On la traite comme
+      // absente pour déclencher la récupération via l'API.
+      const cleanFen = (fen && fen !== 'None') ? fen : null;
+      if (cleanFen) {
+        slot.appendChild(renderMiniBoard(cleanFen));
         return;
       }
       slot.classList.add('mini-board-loading');
@@ -239,8 +243,9 @@
         el.style.display = 'block';
       }
     }
-    // 6) Transforme une liste de puzzles en carrousel : une carte visible à
-    //    la fois, navigation via flèches semi-transparentes superposées.
+    // 6) Transforme une liste de puzzles en carrousel adaptatif : autant de
+    //    cartes visibles que la largeur le permet, navigation par flèches
+    //    semi-transparentes superposées (fenêtre glissante, une carte à la fois).
     function initCarousel(ul) {
       if (!ul) return;
       const items = Array.from(ul.children).filter(el => el.classList.contains('puzzle-card'));
@@ -272,20 +277,54 @@
       wrapper.appendChild(counter);
 
       let index = 0;
+      let visibleCount = 1;
+
+      // Largeur de carte et espacement définis dans le CSS (.puzzle-card
+      // dans .carousel : width 11rem, gap 0.8rem) — lus dynamiquement pour
+      // rester synchronisé même si la taille de police racine change (zoom).
+      function remToPx(rem) {
+        return rem * parseFloat(getComputedStyle(document.documentElement).fontSize);
+      }
+
+      function computeVisibleCount() {
+        const cardWidth = remToPx(11);
+        const gap = remToPx(0.8);
+        const available = ul.clientWidth || wrapper.clientWidth;
+        const count = Math.floor((available + gap) / (cardWidth + gap));
+        return Math.max(1, count);
+      }
 
       function render() {
-        items.forEach((item, i) => item.classList.toggle('active', i === index));
-        counter.textContent = `${index + 1} / ${items.length}`;
+        visibleCount = computeVisibleCount();
+        // Évite un "trou" en fin de liste si la fenêtre s'agrandit.
+        if (index > items.length - visibleCount) {
+          index = Math.max(0, items.length - visibleCount);
+        }
+        items.forEach((item, i) => {
+          item.classList.toggle('active', i >= index && i < index + visibleCount);
+        });
+        const start = index + 1;
+        const end = Math.min(index + visibleCount, items.length);
+        counter.textContent = (visibleCount >= items.length)
+          ? `${items.length} / ${items.length}`
+          : `${start}-${end} / ${items.length}`;
         prevBtn.disabled = index === 0;
-        nextBtn.disabled = index === items.length - 1;
+        nextBtn.disabled = index + visibleCount >= items.length;
       }
 
       prevBtn.addEventListener('click', () => {
         if (index > 0) { index--; render(); }
       });
       nextBtn.addEventListener('click', () => {
-        if (index < items.length - 1) { index++; render(); }
+        if (index + visibleCount < items.length) { index++; render(); }
       });
+
+      let resizeTimeout;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(render, 150);
+      });
+      window.addEventListener('orientationchange', () => setTimeout(render, 300));
 
       render();
     }
