@@ -9,7 +9,10 @@
   <main>
     <header class="topbar">
       <h1>Vos puzzles ratés</h1>
-      <a class="btn small" href="{{ url_for('logout') }}">Se déconnecter</a>
+      <div class="topbar-actions">
+        <a class="btn small" href="{{ url_for('puzzles') }}">🔄 Actualiser la liste</a>
+        <a class="btn small" href="{{ url_for('logout') }}">Se déconnecter</a>
+      </div>
     </header>
 
     {% if error %}
@@ -59,7 +62,7 @@
     </section>
   </main>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
   <script src="{{ url_for('static', filename='leitner.js') }}"></script>
   <script>
     // 1) Détecte les puzzles nouvellement ratés (absents du suivi avant ce
@@ -137,26 +140,42 @@
     // 5) Graphique des occurrences de thèmes (tous les puzzles suivis).
     const themeCounts = leitnerGetThemeCounts();
     const themeEntries = Object.entries(themeCounts).sort((a, b) => b[1] - a[1]);
+    console.log('[stats-thèmes] puzzles suivis en localStorage :', leitnerGetAllPuzzles().length, '— thèmes :', themeCounts);
+
     if (themeEntries.length === 0) {
       document.getElementById('themes-chart').style.display = 'none';
       document.getElementById('no-stats').style.display = 'block';
+    } else if (typeof Chart === 'undefined') {
+      // La librairie Chart.js n'a pas pu se charger (réseau bloqué, CDN indisponible...)
+      document.getElementById('themes-chart').style.display = 'none';
+      const el = document.getElementById('no-stats');
+      el.textContent = '⚠️ Le graphique n\'a pas pu se charger (bibliothèque Chart.js indisponible).';
+      el.style.display = 'block';
     } else {
-      new Chart(document.getElementById('themes-chart'), {
-        type: 'bar',
-        data: {
-          labels: themeEntries.map(([theme]) => theme),
-          datasets: [{
-            label: 'Occurrences',
-            data: themeEntries.map(([, count]) => count),
-            backgroundColor: '#4a7a3c'
-          }]
-        },
-        options: {
-          indexAxis: 'y',
-          plugins: { legend: { display: false } },
-          scales: { x: { ticks: { precision: 0 } } }
-        }
-      });
+      try {
+        new Chart(document.getElementById('themes-chart'), {
+          type: 'bar',
+          data: {
+            labels: themeEntries.map(([theme]) => theme),
+            datasets: [{
+              label: 'Occurrences',
+              data: themeEntries.map(([, count]) => count),
+              backgroundColor: '#4a7a3c'
+            }]
+          },
+          options: {
+            indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: { x: { ticks: { precision: 0 } } }
+          }
+        });
+      } catch (e) {
+        console.error('[stats-thèmes] erreur de création du graphique :', e);
+        document.getElementById('themes-chart').style.display = 'none';
+        const el = document.getElementById('no-stats');
+        el.textContent = '⚠️ Erreur lors de l\'affichage du graphique (voir la console).';
+        el.style.display = 'block';
+      }
     }
   </script>
 </body>

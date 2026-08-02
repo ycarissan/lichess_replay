@@ -43,6 +43,11 @@ h1 { font-size: 1.5rem; }
   margin-top: 1rem;
 }
 
+.topbar-actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
 .btn.small { padding: 0.4rem 0.9rem; font-size: 0.85rem; margin-top: 0; }
 .btn:hover { background: #3b6230; }
 
