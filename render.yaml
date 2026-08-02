@@ -1,0 +1,25 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Place ce fichier à la racine du repo GitHub. Render détecte automatiquement
+# render.yaml lors de la création d'un "Blueprint" et active le déploiement
+# automatique à chaque push sur la branche configurée (main par défaut).
+
+services:
+  - type: web
+    name: lichess-puzzle-replay
+    runtime: python
+    plan: free
+    branch: main
+    autoDeploy: true          # redéploie à chaque push GitHub
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: FLASK_SECRET_KEY
+        generateValue: true              # Render génère un secret aléatoire
+      - key: LICHESS_CLIENT_ID
+        value: mon-app-puzzle-replay
+      - key: LICHESS_REDIRECT_URI
+        value: https://lichess-puzzle-replay.onrender.com/callback
+      - key: SUPABASE_URL
+        sync: false                      # à renseigner manuellement dans le dashboard Render
+      - key: SUPABASE_KEY
+        sync: false                      # idem — ne jamais committer une clé dans le repo
