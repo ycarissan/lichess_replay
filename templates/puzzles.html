@@ -63,18 +63,18 @@
 
     <!-- Section générée en JS à partir du localStorage : puzzles dus aujourd'hui -->
     <section id="due-section" style="display:none;">
-      <h2>📅 À réviser aujourd'hui</h2>
+      <h2 title="À réviser aujourd'hui" aria-label="À réviser aujourd'hui">📅</h2>
       <ul id="due-list" class="puzzle-list"></ul>
     </section>
 
     <section>
-      <h2>📊 Statistiques par thème</h2>
+      <h2 title="Statistiques par thème" aria-label="Statistiques par thème">📊</h2>
       <canvas id="themes-chart" height="120"></canvas>
       <p id="no-stats" class="hint" style="display:none;">Pas encore assez de données pour un graphique.</p>
     </section>
 
     <section>
-      <h2>🕘 10 derniers puzzles ratés (Lichess)</h2>
+      <h2 title="10 derniers puzzles ratés (Lichess)" aria-label="10 derniers puzzles ratés (Lichess)">🕘</h2>
       {% if not failed %}
         <p>Aucun puzzle raté trouvé dans votre historique récent 🎉</p>
       {% else %}
@@ -100,8 +100,8 @@
               </div>
               <div class="card-actions">
                 <div class="popover-anchor">
-                  <button type="button" class="info-btn" aria-haspopup="true" aria-expanded="false">
-                    ℹ️ Thèmes
+                  <button type="button" class="info-btn" aria-haspopup="true" aria-expanded="false" aria-label="Voir les thèmes" title="Thèmes">
+                    ℹ️
                   </button>
                   <div class="themes-popover" role="tooltip" hidden>{{ p.themes | join(', ') }}</div>
                 </div>
@@ -229,7 +229,7 @@
           </div>
           <div class="card-actions">
             <div class="popover-anchor">
-              <button type="button" class="info-btn" aria-haspopup="true" aria-expanded="false">ℹ️ Thèmes</button>
+              <button type="button" class="info-btn" aria-haspopup="true" aria-expanded="false" aria-label="Voir les thèmes" title="Thèmes">ℹ️</button>
               <div class="themes-popover" role="tooltip" hidden>${(p.themes || []).join(', ')}</div>
             </div>
           </div>
