@@ -47,10 +47,11 @@
 
     const game = new Chess(startFen);
 
-    // La couleur qui doit trouver la solution est l'opposé du trait dans le
-    // FEN de départ (ce FEN représente la position juste AVANT le coup de
-    // l'adversaire, rejoué automatiquement au chargement).
-    const playerColor = startFen.split(' ')[1] === 'w' ? 'black' : 'white';
+    // Le FEN renvoyé par l'API est déjà la position prête à être résolue :
+    // le trait indiqué dans le FEN est celui du joueur, qui doit trouver
+    // solution[0] en premier. Les coups de l'adversaire (indices impairs)
+    // sont rejoués automatiquement après chaque bon coup du joueur.
+    const playerColor = startFen.split(' ')[1] === 'w' ? 'white' : 'black';
 
     const board = Chessboard('board', {
       draggable: true,
@@ -73,9 +74,9 @@
       };
     }
 
-    // Joue automatiquement le coup de l'adversaire (avec un léger délai
+    // Joue automatiquement la réponse de l'adversaire (avec un léger délai
     // pour que ce soit lisible), puis rend la main au joueur.
-    function playOpponentMove() {
+    function playOpponentReply() {
       if (moveIndex >= solution.length) return;
       const mv = uciToMove(solution[moveIndex]);
       setTimeout(() => {
@@ -87,7 +88,7 @@
             solved = true;
             setStatus('✅ Puzzle résolu !');
           } else {
-            setStatus(`Coup ${moveIndex}/${solution.length} joué par l'adversaire. À vous.`);
+            setStatus(`L'adversaire a joué ${result.san}. À vous.`);
           }
         }
       }, 400);
@@ -111,7 +112,7 @@
         setStatus('✅ Bravo, puzzle résolu !');
       } else {
         setStatus('✔️ Bon coup !');
-        playOpponentMove();
+        playOpponentReply();
       }
     }
 
@@ -134,10 +135,10 @@
     function resetBoard() {
       game.load(startFen);
       board.position(startFen);
+      board.orientation(playerColor);
       moveIndex = 0;
       solved = false;
-      setStatus('Position initiale — le premier coup (adversaire) va être joué.');
-      playOpponentMove();
+      setStatus('À vous de jouer.');
     }
 
     document.getElementById('btn-solution').addEventListener('click', showSolutionStep);
