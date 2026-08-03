@@ -176,9 +176,54 @@ défaut, modifiable dans `app.py`) comptes Lichess. Les 10 derniers puzzles
 ratés affichés sont fusionnés et triés par date sur l'ensemble des comptes
 liés, avec une étiquette indiquant le compte d'origine sur chaque carte.
 
+## Publier une app Android (TWA) sur le Google Play Store
+
+Le site est maintenant une **PWA installable** : manifest, icônes, service
+worker. Ce qui suit se fait **en dehors de ce dépôt**, sur votre machine.
+
+### 1. Prérequis locaux
+
+- [Node.js](https://nodejs.org) 10+
+- Un JDK (Bubblewrap peut l'installer automatiquement au premier lancement)
+- Un compte [Google Play Console](https://play.google.com/console) (frais unique de 25 $)
+
+### 2. Générer l'app Android avec Bubblewrap
+
+```bash
+npm install -g @bubblewrap/cli
+bubblewrap init --manifest=https://VOTRE-SITE.onrender.com/static/manifest.json
+bubblewrap build
+```
+
+Bubblewrap pose quelques questions (nom du package Android, ex.
+`com.votrenom.puzzlereplay`), génère un projet Android, et produit :
+- un fichier `.aab` signé, prêt à uploader sur le Play Store,
+- une clé de signature (`android.keystore`) — **à conserver précieusement**,
+  indispensable pour toute mise à jour future de l'app,
+- un fichier `assetlinks.json` contenant l'empreinte SHA-256 de cette clé.
+
+### 3. Configurer la vérification du domaine
+
+Ouvrez le `assetlinks.json` généré par Bubblewrap, récupérez la valeur de
+`sha256_cert_fingerprints`, puis ajoutez sur Render (Environment) :
+
+| Variable | Valeur |
+|---|---|
+| `ANDROID_APP_PACKAGE_NAME` | le nom de package choisi (ex. `com.votrenom.puzzlereplay`) |
+| `ANDROID_APP_SHA256_FINGERPRINT` | l'empreinte SHA-256 générée par Bubblewrap |
+
+La route `/.well-known/assetlinks.json` du site sert alors automatiquement
+le bon fichier de vérification. Sans ces variables, la route renvoie un
+tableau vide (le site continue de fonctionner normalement, simplement sans
+TWA vérifiée — Chrome afficherait la barre d'adresse au lieu du plein écran).
+
+### 4. Publier
+
+Uploadez le `.aab` généré sur la Google Play Console, remplissez la fiche
+(nom, description, captures d'écran, catégorie), puis soumettez à
+validation.
+
 ## Limites connues
-
-
 
 - Le token est gardé en session Flask (cookie signé) — convient pour un
   usage local/personnel, pas pour de la production multi-utilisateurs sans

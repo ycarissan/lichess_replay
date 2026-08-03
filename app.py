@@ -19,7 +19,7 @@ import secrets
 import urllib.parse
 
 import requests
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 from supabase_client import get_supabase
 
@@ -123,6 +123,37 @@ def generate_pkce_pair():
 
 
 # --- Routes ----------------------------------------------------------------
+@app.route("/.well-known/assetlinks.json")
+def assetlinks():
+    """Fichier de vérification Digital Asset Links, requis pour qu'une TWA
+    (Trusted Web Activity) Android affiche le site sans barre d'adresse.
+
+    Le champ sha256_cert_fingerprints doit être rempli avec l'empreinte de
+    la clé de signature de l'app Android, générée par Bubblewrap
+    (`bubblewrap build`, fichier android.keystore) — PAS disponible avant
+    d'avoir généré l'app Android. Configurez-le via la variable
+    d'environnement ANDROID_APP_SHA256_FINGERPRINT sur Render.
+    Format attendu : paires d'octets en majuscules séparées par ':'
+    (ex. "14:6D:E9:83:C5:73:...").
+    """
+    fingerprint = os.environ.get("ANDROID_APP_SHA256_FINGERPRINT")
+    package_name = os.environ.get("ANDROID_APP_PACKAGE_NAME", "com.example.puzzlereplay.twa")
+
+    if not fingerprint:
+        # Pas encore configuré : renvoie un tableau vide (aucune app liée)
+        # plutôt qu'une erreur, pour ne jamais casser le site principal.
+        return jsonify([])
+
+    return jsonify([{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+            "namespace": "android_app",
+            "package_name": package_name,
+            "sha256_cert_fingerprints": [fingerprint],
+        },
+    }])
+
+
 @app.route("/")
 def index():
     if "access_token" in session:
