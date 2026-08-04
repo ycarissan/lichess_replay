@@ -113,6 +113,109 @@ def get_all_accounts_for_session():
     return accounts
 
 
+# --- Mode entraîneur -------------------------------------------------------
+# Aucun rôle à cocher à l'inscription : quiconque visite /coach devient
+# entraîneur automatiquement (une ligne `coaches` est créée au premier accès).
+# Le lien Lichess d'un élève est OPTIONNEL (décision produit) : un élève peut
+# n'être qu'un nom + éventuellement une fiche FIDE, sans compte Lichess propre.
+
+def get_or_create_coach(username):
+    """Renvoie l'id de la ligne `coaches` pour ce pseudo Lichess, en la
+    créant si besoin. Renvoie None si Supabase n'est pas configuré."""
+    sb = get_supabase()
+    if not sb or not username:
+        return None
+    try:
+        resp = (
+            sb.table("coaches")
+            .select("id")
+            .eq("lichess_username", username)
+            .limit(1)
+            .execute()
+        )
+        if resp.data:
+            return resp.data[0]["id"]
+        created = sb.table("coaches").insert({
+            "lichess_username": username,
+            "display_name": username,
+        }).execute()
+        return created.data[0]["id"] if created.data else None
+    except Exception as exc:
+        app.logger.error("Échec get_or_create_coach pour %s : %s", username, exc)
+        return None
+
+
+def _next_class_name(coach_id, sb):
+    """Propose le prochain nom de classe disponible : 'Classe 1', 'Classe 2', ...
+    (le nom reste modifiable ensuite par l'entraîneur)."""
+    resp = sb.table("classes").select("name").eq("coach_id", coach_id).execute()
+    existing = {row["name"] for row in (resp.data or [])}
+    n = 1
+    while f"Classe {n}" in existing:
+        n += 1
+    return f"Classe {n}"
+
+
+def search_students_autocomplete(coach_id, query, limit=8):
+    """Autocomplétion de recherche d'élève : cherche d'abord parmi les
+    élèves déjà créés par CET entraîneur (évite les doublons), puis dans le
+    cache local `fide_players` (import périodique, voir
+    scripts/import_fide_players.py — pas d'appel direct à ratings.fide.com).
+    Renvoie une liste de dicts avec un champ 'source' ('existing' | 'fide')."""
+    sb = get_supabase()
+    if not sb or not query or len(query.strip()) < 2:
+        return []
+    q = query.strip()
+
+    results = []
+    try:
+        own = (
+            sb.table("students")
+            .select("id, display_name, fide_id, fide_federation, fide_title, lichess_username")
+            .eq("coach_id", coach_id)
+            .ilike("display_name", f"{q}%")
+            .limit(limit)
+            .execute()
+        )
+        for row in own.data or []:
+            results.append({
+                "source": "existing",
+                "student_id": row["id"],
+                "name": row["display_name"],
+                "federation": row.get("fide_federation"),
+                "title": row.get("fide_title"),
+                "fide_id": row.get("fide_id"),
+                "lichess_username": row.get("lichess_username"),
+            })
+    except Exception as exc:
+        app.logger.error("Échec recherche students pour coach %s : %s", coach_id, exc)
+
+    remaining = limit - len(results)
+    if remaining > 0:
+        try:
+            fide = (
+                sb.table("fide_players")
+                .select("fide_id, name, federation, title")
+                .ilike("name", f"{q}%")
+                .limit(remaining)
+                .execute()
+            )
+            for row in fide.data or []:
+                results.append({
+                    "source": "fide",
+                    "student_id": None,
+                    "name": row["name"],
+                    "federation": row.get("federation"),
+                    "title": row.get("title"),
+                    "fide_id": row.get("fide_id"),
+                    "lichess_username": None,
+                })
+        except Exception as exc:
+            app.logger.error("Échec recherche fide_players pour %r : %s", q, exc)
+
+    return results
+
+
 # --- Utilitaires PKCE ----------------------------------------------------
 def generate_pkce_pair():
     """Génère (code_verifier, code_challenge) selon RFC 7636 (méthode S256)."""
@@ -333,6 +436,239 @@ def api_premium_toggle():
 def logout():
     session.clear()
     return redirect(url_for("index"))
+
+
+@app.route("/coach")
+def coach_dashboard():
+    """Tableau de bord entraîneur : liste des classes de l'utilisateur
+    connecté. Le mode entraîneur ne nécessite pas d'opt-in préalable :
+    la ligne `coaches` est créée automatiquement au premier accès."""
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+
+    username = session.get("lichess_username")
+    sb = get_supabase()
+    if not sb:
+        return render_template("coach.html", error="Supabase non configuré.", classes=[])
+
+    coach_id = get_or_create_coach(username)
+    if coach_id is None:
+        return render_template("coach.html", error="Impossible d'initialiser le mode entraîneur.", classes=[])
+
+    try:
+        resp = (
+            sb.table("classes")
+            .select("id, name, class_students(count)")
+            .eq("coach_id", coach_id)
+            .order("created_at")
+            .execute()
+        )
+        classes = [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "student_count": (row.get("class_students") or [{}])[0].get("count", 0),
+            }
+            for row in (resp.data or [])
+        ]
+    except Exception as exc:
+        app.logger.error("Échec chargement classes pour coach %s : %s", coach_id, exc)
+        classes = []
+
+    return render_template("coach.html", classes=classes)
+
+
+@app.route("/coach/classes", methods=["POST"])
+def coach_create_class():
+    """Crée une nouvelle classe avec un nom auto-proposé ('Classe N'),
+    modifiable ensuite via coach_rename_class."""
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+
+    username = session.get("lichess_username")
+    sb = get_supabase()
+    coach_id = get_or_create_coach(username) if sb else None
+    if not sb or coach_id is None:
+        return redirect(url_for("coach_dashboard"))
+
+    try:
+        name = _next_class_name(coach_id, sb)
+        sb.table("classes").insert({"coach_id": coach_id, "name": name}).execute()
+    except Exception as exc:
+        app.logger.error("Échec création classe pour coach %s : %s", coach_id, exc)
+
+    return redirect(url_for("coach_dashboard"))
+
+
+@app.route("/coach/classes/<int:class_id>", methods=["POST"])
+def coach_update_class(class_id):
+    """Renomme ou supprime une classe (formulaire HTML classique, pas
+    d'API JSON séparée : cohérent avec le style des autres routes du
+    projet comme /unlink-account)."""
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+
+    username = session.get("lichess_username")
+    sb = get_supabase()
+    coach_id = get_or_create_coach(username) if sb else None
+    if not sb or coach_id is None:
+        return redirect(url_for("coach_dashboard"))
+
+    action = request.form.get("action")
+    try:
+        if action == "rename":
+            new_name = (request.form.get("name") or "").strip()
+            if new_name:
+                sb.table("classes").update({"name": new_name}).eq("id", class_id).eq(
+                    "coach_id", coach_id
+                ).execute()
+        elif action == "delete":
+            sb.table("classes").delete().eq("id", class_id).eq("coach_id", coach_id).execute()
+    except Exception as exc:
+        app.logger.error("Échec mise à jour classe %s : %s", class_id, exc)
+
+    return redirect(url_for("coach_dashboard"))
+
+
+@app.route("/coach/classes/<int:class_id>")
+def coach_view_class(class_id):
+    """Détail d'une classe : liste des élèves + formulaire d'ajout avec
+    autocomplétion (élèves existants + base FIDE en cache local)."""
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+
+    username = session.get("lichess_username")
+    sb = get_supabase()
+    coach_id = get_or_create_coach(username) if sb else None
+    if not sb or coach_id is None:
+        return redirect(url_for("coach_dashboard"))
+
+    try:
+        class_resp = (
+            sb.table("classes")
+            .select("id, name")
+            .eq("id", class_id)
+            .eq("coach_id", coach_id)
+            .limit(1)
+            .execute()
+        )
+        if not class_resp.data:
+            return redirect(url_for("coach_dashboard"))
+        klass = class_resp.data[0]
+
+        roster_resp = (
+            sb.table("class_students")
+            .select("student_id, students(id, display_name, fide_id, fide_federation, fide_title, lichess_username, source)")
+            .eq("class_id", class_id)
+            .execute()
+        )
+        roster = [row["students"] for row in (roster_resp.data or []) if row.get("students")]
+    except Exception as exc:
+        app.logger.error("Échec chargement classe %s : %s", class_id, exc)
+        return redirect(url_for("coach_dashboard"))
+
+    return render_template("coach_class.html", klass=klass, roster=roster)
+
+
+@app.route("/api/students/search")
+def api_students_search():
+    """Autocomplétion : GET /api/students/search?q=car
+    Renvoie les élèves déjà créés par l'entraîneur (priorité, évite les
+    doublons) puis des correspondances dans le cache local de la base FIDE."""
+    if "access_token" not in session:
+        return {"error": "not_authenticated"}, 401
+
+    username = session.get("lichess_username")
+    coach_id = get_or_create_coach(username)
+    if coach_id is None:
+        return {"error": "coach_unavailable"}, 503
+
+    query = request.args.get("q", "")
+    return jsonify(search_students_autocomplete(coach_id, query))
+
+
+@app.route("/coach/classes/<int:class_id>/students", methods=["POST"])
+def coach_add_student(class_id):
+    """Ajoute un élève à une classe. Trois cas, selon les champs du
+    formulaire (rempli via l'autocomplétion JS ou saisi manuellement) :
+      - student_id fourni       -> élève déjà existant, on lie juste à la classe
+      - fide_id fourni (sans id) -> nouvel élève créé depuis une fiche FIDE
+      - ni l'un ni l'autre       -> élève purement manuel (nom libre, débutant)
+    Le lien Lichess (lichess_username) reste optionnel dans tous les cas."""
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+
+    username = session.get("lichess_username")
+    sb = get_supabase()
+    coach_id = get_or_create_coach(username) if sb else None
+    if not sb or coach_id is None:
+        return redirect(url_for("coach_dashboard"))
+
+    # Vérifie que la classe appartient bien à cet entraîneur.
+    class_check = (
+        sb.table("classes").select("id").eq("id", class_id).eq("coach_id", coach_id).limit(1).execute()
+    )
+    if not class_check.data:
+        return redirect(url_for("coach_dashboard"))
+
+    student_id = request.form.get("student_id")
+    display_name = (request.form.get("name") or "").strip()
+    lichess_username = (request.form.get("lichess_username") or "").strip() or None
+
+    try:
+        if student_id:
+            # Élève déjà existant dans la base de cet entraîneur.
+            sb.table("class_students").upsert({
+                "class_id": class_id,
+                "student_id": int(student_id),
+            }, on_conflict="class_id,student_id").execute()
+        elif display_name:
+            fide_id = request.form.get("fide_id") or None
+            new_student = sb.table("students").insert({
+                "coach_id": coach_id,
+                "display_name": display_name,
+                "fide_id": int(fide_id) if fide_id else None,
+                "fide_federation": request.form.get("federation") or None,
+                "fide_title": request.form.get("title") or None,
+                "lichess_username": lichess_username,
+                "source": "fide" if fide_id else "manual",
+            }).execute()
+            if new_student.data:
+                sb.table("class_students").insert({
+                    "class_id": class_id,
+                    "student_id": new_student.data[0]["id"],
+                }).execute()
+    except Exception as exc:
+        app.logger.error("Échec ajout élève à la classe %s : %s", class_id, exc)
+
+    return redirect(url_for("coach_view_class", class_id=class_id))
+
+
+@app.route("/coach/classes/<int:class_id>/students/<int:student_id>", methods=["POST"])
+def coach_remove_student(class_id, student_id):
+    """Retire un élève d'une classe (ne supprime pas sa fiche `students`,
+    qui peut être partagée par d'autres classes)."""
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+
+    username = session.get("lichess_username")
+    sb = get_supabase()
+    coach_id = get_or_create_coach(username) if sb else None
+    if not sb or coach_id is None:
+        return redirect(url_for("coach_dashboard"))
+
+    try:
+        class_check = (
+            sb.table("classes").select("id").eq("id", class_id).eq("coach_id", coach_id).limit(1).execute()
+        )
+        if class_check.data:
+            sb.table("class_students").delete().eq("class_id", class_id).eq(
+                "student_id", student_id
+            ).execute()
+    except Exception as exc:
+        app.logger.error("Échec retrait élève %s de la classe %s : %s", student_id, class_id, exc)
+
+    return redirect(url_for("coach_view_class", class_id=class_id))
 
 
 @app.route("/puzzles")

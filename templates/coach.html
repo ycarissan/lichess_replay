@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mode entraîneur — Lichess Puzzle Replay</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <h1>👨‍🏫 Mes classes</h1>
+      <div class="topbar-actions">
+        <a class="btn small" href="{{ url_for('puzzles') }}">← Retour aux puzzles</a>
+      </div>
+    </header>
+
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('coach_create_class') }}">
+      <button type="submit" class="btn">+ Nouvelle classe</button>
+    </form>
+
+    {% if not classes %}
+      <p class="hint">Aucune classe pour l'instant. Créez-en une pour commencer à y ajouter des élèves.</p>
+    {% else %}
+      <ul class="puzzle-list">
+        {% for c in classes %}
+          <li class="puzzle-card">
+            <div class="puzzle-info">
+              <strong>{{ c.name }}</strong>
+              <span class="hint">{{ c.student_count }} élève{{ 's' if c.student_count != 1 else '' }}</span>
+            </div>
+            <div class="card-actions">
+              <a class="btn small" href="{{ url_for('coach_view_class', class_id=c.id) }}">Ouvrir</a>
+              <form method="post" action="{{ url_for('coach_update_class', class_id=c.id) }}"
+                    onsubmit="return confirm('Supprimer cette classe (les élèves ne sont pas supprimés) ?');"
+                    style="display:inline;">
+                <input type="hidden" name="action" value="delete">
+                <button type="submit" class="unlink-btn" title="Supprimer la classe">✕</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </main>
+</body>
+</html>

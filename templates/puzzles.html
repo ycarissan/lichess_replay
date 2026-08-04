@@ -21,6 +21,7 @@
 
       <div class="topbar-actions" id="topbar-actions">
         <a class="btn small" href="{{ url_for('garden') }}">🌷 Jardin</a>
+        <a class="btn small" href="{{ url_for('coach_dashboard') }}">👨‍🏫 Mode entraîneur</a>
         <a class="btn small" href="{{ url_for('puzzles') }}">🔄 Actualiser la liste</a>
         <button type="button" id="premium-toggle-btn" class="btn small">
           {% if is_premium %}⭐ Repasser en gratuit{% else %}⭐ Passer en premium (test){% endif %}

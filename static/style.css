@@ -532,3 +532,24 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
   .carousel-wrapper { padding: 0 2.5rem; }
   .carousel-arrow { width: 2.4rem; height: 2.4rem; font-size: 1.4rem; }
 }
+
+/* --- Mode entraîneur ------------------------------------------------- */
+.rename-form { display: flex; gap: 0.5rem; margin: 1rem 0; align-items: center; }
+.rename-form input[type="text"] { flex: 1; padding: 0.5rem; border-radius: 8px; border: 1px solid #ccc; }
+
+#add-student-section { margin: 1.5rem 0; }
+#add-student-section input[type="text"] {
+  padding: 0.5rem; border-radius: 8px; border: 1px solid #ccc; width: 100%;
+  box-sizing: border-box; margin-bottom: 0.4rem;
+}
+#add-student-form { display: flex; flex-direction: column; gap: 0.5rem; max-width: 360px; }
+
+.student-search-results {
+  list-style: none; margin: 0; padding: 0.3rem 0;
+  position: absolute; left: 0; right: 0; z-index: 20;
+  background: #fff; border: 1px solid #ddd; border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12); max-height: 260px; overflow-y: auto;
+}
+.student-search-results li { padding: 0.5rem 0.8rem; cursor: pointer; display: flex; flex-direction: column; }
+.student-search-results li:hover,
+.student-search-results li:focus-visible { background: #f2f2f2; outline: none; }
