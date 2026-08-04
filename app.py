@@ -166,6 +166,7 @@ def search_students_autocomplete(coach_id, query, limit=8):
     if not sb or not query or len(query.strip()) < 2:
         return []
     q = query.strip()
+    q_lower = q.lower()
 
     results = []
     try:
@@ -173,7 +174,7 @@ def search_students_autocomplete(coach_id, query, limit=8):
             sb.table("students")
             .select("id, display_name, fide_id, fide_federation, fide_title, lichess_username")
             .eq("coach_id", coach_id)
-            .ilike("display_name", f"{q}%")
+            .like("display_name_lower", f"{q_lower}%")
             .limit(limit)
             .execute()
         )
@@ -196,7 +197,7 @@ def search_students_autocomplete(coach_id, query, limit=8):
             fide = (
                 sb.table("fide_players")
                 .select("fide_id, name, federation, title")
-                .ilike("name", f"{q}%")
+                .like("name_lower", f"{q_lower}%")
                 .limit(remaining)
                 .execute()
             )
