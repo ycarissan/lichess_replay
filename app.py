@@ -413,6 +413,17 @@ def puzzles():
     )
 
 
+@app.route("/garden")
+def garden():
+    """Le jardin de puzzles : vue graphique alternative à la liste, où
+    chaque puzzle suivi est une plante dont le stade reflète sa boîte
+    Leitner. Les données viennent entièrement du client (localStorage /
+    Supabase via sync.js) ; cette route ne fait que servir la page."""
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+    return render_template("garden.html")
+
+
 def _find_puzzle_entry(puzzle_id, access_token):
     """Cherche un puzzle par id dans les 200 dernières activités de puzzle
     de l'utilisateur. Retourne l'entrée complète (dict) ou None."""

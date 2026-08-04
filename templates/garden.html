@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jardin de puzzles — Lichess</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <meta name="theme-color" content="#4a7a3c">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <h1 title="Jardin de puzzles" aria-label="Jardin de puzzles">🌷</h1>
+      <a class="btn small" href="{{ url_for('puzzles') }}">&larr; Retour</a>
+    </header>
+
+    <p id="garden-summary" class="hint"></p>
+
+    <div id="garden-scene" class="garden-scene" aria-label="Jardin de puzzles"></div>
+
+    <p class="hint garden-legend">
+      🌱 Graine → Plantule → Bourgeon → Rose → 🌹 Plusieurs roses — la plante
+      grandit à mesure que le puzzle est maîtrisé. Cliquez sur une plante
+      pour rejouer le puzzle correspondant.
+    </p>
+  </main>
+
+  <script src="{{ url_for('static', filename='leitner.js') }}"></script>
+  <script src="{{ url_for('static', filename='sync.js') }}"></script>
+  <script src="{{ url_for('static', filename='garden.js') }}"></script>
+  <script>
+    syncInit().then(() => {
+      const all = leitnerGetAllPuzzles();
+      const mastered = all.filter(p => p.box >= 5).length;
+      document.getElementById('garden-summary').textContent =
+        all.length > 0
+          ? `🌹 ${mastered} / ${all.length} roses en pleine floraison`
+          : 'Votre jardin est encore vide — rejouez un puzzle raté pour planter votre première graine.';
+      renderGarden(document.getElementById('garden-scene'), all);
+    });
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/service-worker.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>

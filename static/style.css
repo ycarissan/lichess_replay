@@ -203,6 +203,61 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
 
 .account-label { font-style: italic; }
 
+/* --- Jardin de puzzles --- */
+.garden-scene {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.1rem;
+  min-height: 240px;
+  padding: 1.5rem 0.5rem 0;
+  border-radius: 14px;
+  background: linear-gradient(
+    to bottom,
+    #d7ecdf 0%, #d7ecdf 55%,
+    #c9dfc2 55%, #c9dfc2 72%,
+    #8b6b4a 72%, #6e5439 100%
+  );
+  overflow: hidden;
+}
+
+.garden-plant {
+  display: inline-block;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.garden-plant:hover,
+.garden-plant:focus-visible { filter: brightness(1.08); outline: none; }
+
+.garden-plant .plant-svg { display: block; height: auto; }
+
+.garden-stage-1 .plant-svg { width: 34px; }
+.garden-stage-2 .plant-svg { width: 46px; }
+.garden-stage-3 .plant-svg { width: 60px; }
+.garden-stage-4 .plant-svg { width: 76px; }
+.garden-stage-5 .plant-svg { width: 96px; }
+
+/* Vent léger : légère oscillation, ancrée à la base de la tige
+   (transform-origin défini en inline sur le groupe .plant-sway lui-même). */
+.plant-sway {
+  animation-name: gentle-wind;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@keyframes gentle-wind {
+  0%   { transform: rotate(-2.5deg); }
+  50%  { transform: rotate(2.5deg); }
+  100% { transform: rotate(-2.5deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plant-sway { animation: none; }
+}
+
+.garden-legend { text-align: center; margin-top: 0.8rem; }
+
 /* --- Carrousel de puzzles : une carte à la fois, flèches superposées --- */
 .carousel-wrapper {
   position: relative;

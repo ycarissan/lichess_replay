@@ -1,0 +1,6 @@
+<svg viewBox="0 0 100 160" xmlns="http://www.w3.org/2000/svg" class="plant-svg" data-stage="graine">
+  <g class="plant-static"><ellipse cx="50" cy="148" rx="22" ry="7" fill="#8b6b4a"/><ellipse cx="50" cy="146.5" rx="18" ry="4" fill="#6e5439" opacity="0.4"/></g>
+  <g class="plant-sway" style="transform-origin: 50px 148px;">
+    <ellipse cx="50" cy="145" rx="4.5" ry="3" fill="#5c4326"/><ellipse cx="48.5" cy="144" rx="1.5" ry="1" fill="#8a6a3f" opacity="0.8"/>
+  </g>
+</svg>

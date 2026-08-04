@@ -1,0 +1,6 @@
+<svg viewBox="0 0 100 160" xmlns="http://www.w3.org/2000/svg" class="plant-svg" data-stage="bourgeon">
+  <g class="plant-static"><ellipse cx="50" cy="148" rx="22" ry="7" fill="#8b6b4a"/><ellipse cx="50" cy="146.5" rx="18" ry="4" fill="#6e5439" opacity="0.4"/></g>
+  <g class="plant-sway" style="transform-origin: 50px 148px;">
+    <path d="M 50,148 Q 55,121.5 50,95" stroke="#4a7a3c" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M 50,132 C 57.7,128.7 57.7,122.1 50,121 C 42.3,122.1 42.3,128.7 50,132 Z" fill="#5f9950" transform="rotate(-40 50 132)"/><path d="M 50,132 C 57.7,128.7 57.7,122.1 50,121 C 42.3,122.1 42.3,128.7 50,132 Z" fill="#5f9950" transform="rotate(40 50 132)"/><path d="M 48,112 C 54.3,109.3 54.3,103.9 48,103 C 41.7,103.9 41.7,109.3 48,112 Z" fill="#5f9950" transform="rotate(-30 48 112)"/><path d="M 50,95 C 54,99 54,107 50,111 C 46,107 46,99 50,95 Z" fill="#5f9950"/><path d="M 50,97 C 52,100 52,105 50,108 Z" fill="#c9436b" opacity="0.7"/>
+  </g>
+</svg>
