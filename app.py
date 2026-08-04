@@ -571,6 +571,66 @@ def coach_view_class(class_id):
     return render_template("coach_class.html", klass=klass, roster=roster)
 
 
+@app.route("/coach/students/<int:student_id>")
+def coach_view_student(student_id):
+    """Fiche détaillée d'un élève : toutes les informations FIDE obtenues
+    via l'import (scripts/import_fide_players.py), plus le lien Lichess
+    optionnel et la liste des classes où il apparaît."""
+    if "access_token" not in session:
+        return redirect(url_for("index"))
+
+    username = session.get("lichess_username")
+    sb = get_supabase()
+    coach_id = get_or_create_coach(username) if sb else None
+    if not sb or coach_id is None:
+        return redirect(url_for("coach_dashboard"))
+
+    try:
+        student_resp = (
+            sb.table("students")
+            .select("id, display_name, fide_id, lichess_username, source, created_at")
+            .eq("id", student_id)
+            .eq("coach_id", coach_id)
+            .limit(1)
+            .execute()
+        )
+        if not student_resp.data:
+            return redirect(url_for("coach_dashboard"))
+        student = student_resp.data[0]
+
+        # Fiche FIDE complète : toutes les colonnes importées par
+        # import_fide_players.py (pas seulement le sous-ensemble copié
+        # dans `students` à l'ajout), au cas où l'import aurait été
+        # rafraîchi depuis (nouveau elo, nouveau titre...).
+        fide_info = None
+        if student.get("fide_id"):
+            fide_resp = (
+                sb.table("fide_players")
+                .select("fide_id, name, federation, sex, title, standard_rating, "
+                        "rapid_rating, blitz_rating, birth_year, updated_at")
+                .eq("fide_id", student["fide_id"])
+                .limit(1)
+                .execute()
+            )
+            if fide_resp.data:
+                fide_info = fide_resp.data[0]
+
+        classes_resp = (
+            sb.table("class_students")
+            .select("classes(id, name)")
+            .eq("student_id", student_id)
+            .execute()
+        )
+        classes = [row["classes"] for row in (classes_resp.data or []) if row.get("classes")]
+    except Exception as exc:
+        app.logger.error("Échec chargement fiche élève %s : %s", student_id, exc)
+        return redirect(url_for("coach_dashboard"))
+
+    return render_template(
+        "coach_student.html", student=student, fide_info=fide_info, classes=classes
+    )
+
+
 @app.route("/api/students/search")
 def api_students_search():
     """Autocomplétion : GET /api/students/search?q=car

@@ -553,3 +553,7 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
 .student-search-results li { padding: 0.5rem 0.8rem; cursor: pointer; display: flex; flex-direction: column; }
 .student-search-results li:hover,
 .student-search-results li:focus-visible { background: #f2f2f2; outline: none; }
+
+.student-info-list { list-style: none; padding: 0; margin: 0.5rem 0 1.5rem; }
+.student-info-list li { padding: 0.35rem 0; border-bottom: 1px solid #eee; }
+.student-info-list li:last-child { border-bottom: none; }

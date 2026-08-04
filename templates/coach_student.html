@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ student.display_name }} — Fiche élève</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <h1>{{ student.display_name }}</h1>
+      <div class="topbar-actions">
+        <a class="btn small" href="{{ url_for('coach_dashboard') }}">← Mes classes</a>
+      </div>
+    </header>
+
+    <section>
+      <h2>Informations générales</h2>
+      <ul class="student-info-list">
+        <li><strong>Lien Lichess :</strong>
+          {% if student.lichess_username %}
+            🔗 <a href="https://lichess.org/@/{{ student.lichess_username }}" target="_blank" rel="noopener">{{ student.lichess_username }}</a>
+          {% else %}
+            <span class="hint">aucun (optionnel)</span>
+          {% endif %}
+        </li>
+        <li><strong>Origine de la fiche :</strong>
+          {{ "Importée depuis la base FIDE" if student.source == "fide" else "Saisie manuelle" }}
+        </li>
+        <li><strong>Ajouté le :</strong> {{ student.created_at[:10] if student.created_at else "—" }}</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Fiche FIDE</h2>
+      {% if fide_info %}
+        <ul class="student-info-list">
+          <li><strong>Nom FIDE :</strong> {{ fide_info.name }}</li>
+          <li><strong>ID FIDE :</strong> {{ fide_info.fide_id }}</li>
+          <li><strong>Fédération :</strong> {{ fide_info.federation or "—" }}</li>
+          <li><strong>Sexe :</strong> {{ fide_info.sex or "—" }}</li>
+          <li><strong>Titre :</strong> {{ fide_info.title or "—" }}</li>
+          <li><strong>Année de naissance :</strong> {{ fide_info.birth_year or "—" }}</li>
+          <li><strong>Elo standard :</strong> {{ fide_info.standard_rating or "non classé" }}</li>
+          <li><strong>Elo rapide :</strong> {{ fide_info.rapid_rating or "non classé" }}</li>
+          <li><strong>Elo blitz :</strong> {{ fide_info.blitz_rating or "non classé" }}</li>
+        </ul>
+        <p class="hint">Données du cache FIDE local, mises à jour au dernier import
+          {% if fide_info.updated_at %}({{ fide_info.updated_at[:10] }}){% endif %}.</p>
+      {% elif student.fide_id %}
+        <p class="error">ID FIDE {{ student.fide_id }} renseigné mais introuvable dans le cache local.
+          Relancez <code>scripts/import_fide_players.py --update-supabase</code> pour rafraîchir la base.</p>
+      {% else %}
+        <p class="hint">Aucune fiche FIDE associée à cet élève (ajout manuel, débutant non licencié).</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Classes ({{ classes|length }})</h2>
+      {% if not classes %}
+        <p class="hint">Cet élève n'appartient à aucune classe.</p>
+      {% else %}
+        <ul class="puzzle-list">
+          {% for c in classes %}
+            <li class="puzzle-card">
+              <div class="puzzle-info"><strong>{{ c.name }}</strong></div>
+              <a class="btn small" href="{{ url_for('coach_view_class', class_id=c.id) }}">Ouvrir</a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

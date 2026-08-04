@@ -54,7 +54,7 @@
         {% for s in roster %}
           <li class="puzzle-card">
             <div class="puzzle-info">
-              <strong>{{ s.display_name }}</strong>
+              <strong><a href="{{ url_for('coach_view_student', student_id=s.id) }}">{{ s.display_name }}</a></strong>
               <span class="hint">
                 {% if s.fide_title %}{{ s.fide_title }} · {% endif %}
                 {% if s.fide_federation %}{{ s.fide_federation }} · {% endif %}
