@@ -20,6 +20,10 @@
     {% endif %}
 
     <a class="btn" href="{{ url_for('login') }}">Se connecter avec Lichess</a>
+    <p class="hint" style="margin-top:1rem;">
+      Vous êtes entraîneur et gérez des classes ?
+      <a href="{{ url_for('login_email') }}">Connexion par email</a>
+    </p>
   </main>
 
   <script>

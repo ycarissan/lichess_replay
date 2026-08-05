@@ -557,3 +557,25 @@ section h2 { font-size: 1.1rem; margin-bottom: 0.6rem; }
 .student-info-list { list-style: none; padding: 0; margin: 0.5rem 0 1.5rem; }
 .student-info-list li { padding: 0.35rem 0; border-bottom: 1px solid #eee; }
 .student-info-list li:last-child { border-bottom: none; }
+
+/* --- Cartes cliquables (classes, élèves) + sélection multiple --------- */
+.selectable-card { cursor: pointer; }
+.selectable-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.12); }
+
+.card-checkbox { width: 1.1rem; height: 1.1rem; cursor: pointer; flex-shrink: 0; }
+
+.trash-form { display: inline-flex; margin: 0; }
+.trash-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 1.1rem; line-height: 1; padding: 0.2rem; opacity: 0.6;
+}
+.trash-btn:hover { opacity: 1; }
+
+.bulk-action-bar {
+  display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;
+  background: #f2f2f2; border-radius: 8px; padding: 0.6rem 0.9rem; margin-bottom: 0.8rem;
+}
+.bulk-action-bar select { padding: 0.4rem; border-radius: 6px; border: 1px solid #ccc; }
+
+.btn.danger { background: #b3392c; color: #fff; }
+.btn.danger:hover { background: #922e23; }

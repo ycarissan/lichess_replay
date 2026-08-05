@@ -26,26 +26,32 @@
     {% if not classes %}
       <p class="hint">Aucune classe pour l'instant. Créez-en une pour commencer à y ajouter des élèves.</p>
     {% else %}
+      <div id="bulk-bar" class="bulk-action-bar" hidden>
+        <span id="bulk-count" class="hint">0 sélectionnée(s)</span>
+        <button type="button" id="bulk-delete-btn" class="btn small danger">🗑️ Supprimer la sélection</button>
+      </div>
+
+      <form id="bulk-delete-form" method="post" action="{{ url_for('coach_bulk_delete_classes') }}" hidden></form>
+
       <ul class="puzzle-list">
         {% for c in classes %}
-          <li class="puzzle-card">
+          <li class="puzzle-card selectable-card" data-href="{{ url_for('coach_view_class', class_id=c.id) }}">
+            <input type="checkbox" class="card-checkbox no-card-nav" data-id="{{ c.id }}" aria-label="Sélectionner {{ c.name }}">
             <div class="puzzle-info">
               <strong>{{ c.name }}</strong>
               <span class="hint">{{ c.student_count }} élève{{ 's' if c.student_count != 1 else '' }}</span>
             </div>
-            <div class="card-actions">
-              <a class="btn small" href="{{ url_for('coach_view_class', class_id=c.id) }}">Ouvrir</a>
-              <form method="post" action="{{ url_for('coach_update_class', class_id=c.id) }}"
-                    onsubmit="return confirm('Supprimer cette classe (les élèves ne sont pas supprimés) ?');"
-                    style="display:inline;">
-                <input type="hidden" name="action" value="delete">
-                <button type="submit" class="unlink-btn" title="Supprimer la classe">✕</button>
-              </form>
-            </div>
+            <form method="post" action="{{ url_for('coach_update_class', class_id=c.id) }}"
+                  class="no-card-nav trash-form" data-confirm="Supprimer cette classe (les élèves ne sont pas supprimés) ?">
+              <input type="hidden" name="action" value="delete">
+              <button type="submit" class="trash-btn" title="Supprimer la classe">🗑️</button>
+            </form>
           </li>
         {% endfor %}
       </ul>
     {% endif %}
   </main>
+
+  <script src="{{ url_for('static', filename='coach.js') }}"></script>
 </body>
 </html>

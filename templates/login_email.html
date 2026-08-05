@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connexion entraîneur par email</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="center-box">
+    <h1>👨‍🏫 Connexion entraîneur</h1>
+
+    {% if sent_to %}
+      <p>Un lien de connexion a été envoyé à <strong>{{ sent_to }}</strong>.</p>
+      <p class="hint">Ouvrez-le depuis cet appareil pour vous connecter (valable 1 heure, usage unique).</p>
+    {% else %}
+      <p>Recevez un lien de connexion par email — aucun mot de passe requis.</p>
+
+      {% if error %}
+        <p class="error">{{ error }}</p>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('login_email') }}">
+        <input type="email" name="email" placeholder="votre@email.com" required
+               style="padding:0.5rem; border-radius:8px; border:1px solid #ccc; width:100%; box-sizing:border-box; margin-bottom:0.6rem;">
+        <button type="submit" class="btn">Recevoir le lien de connexion</button>
+      </form>
+    {% endif %}
+
+    <p class="hint" style="margin-top:1.5rem;">
+      <a href="{{ url_for('index') }}">← Retour</a> ·
+      Vous avez un compte Lichess ? <a href="{{ url_for('login') }}">Connexion Lichess</a>
+    </p>
+  </main>
+</body>
+</html>

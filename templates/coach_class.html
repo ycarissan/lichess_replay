@@ -50,19 +50,38 @@
     {% if not roster %}
       <p class="hint">Aucun élève dans cette classe pour l'instant.</p>
     {% else %}
+      <div id="bulk-bar" class="bulk-action-bar" hidden>
+        <span id="bulk-count" class="hint">0 sélectionné(s)</span>
+        <button type="button" id="bulk-remove-btn" class="btn small danger">🗑️ Retirer de la classe</button>
+        {% if other_classes %}
+          <select id="bulk-move-target">
+            <option value="" disabled selected>Déplacer vers…</option>
+            {% for oc in other_classes %}
+              <option value="{{ oc.id }}">{{ oc.name }}</option>
+            {% endfor %}
+          </select>
+          <button type="button" id="bulk-move-btn" class="btn small">Déplacer</button>
+        {% endif %}
+      </div>
+
+      <form id="bulk-remove-form" method="post" action="{{ url_for('coach_bulk_remove_students', class_id=klass.id) }}" hidden></form>
+      <form id="bulk-move-form" method="post" action="{{ url_for('coach_bulk_move_students', class_id=klass.id) }}" hidden></form>
+
       <ul class="puzzle-list">
         {% for s in roster %}
-          <li class="puzzle-card">
+          <li class="puzzle-card selectable-card" data-href="{{ url_for('coach_view_student', student_id=s.id) }}">
+            <input type="checkbox" class="card-checkbox no-card-nav" data-id="{{ s.id }}" aria-label="Sélectionner {{ s.display_name }}">
             <div class="puzzle-info">
-              <strong><a href="{{ url_for('coach_view_student', student_id=s.id) }}">{{ s.display_name }}</a></strong>
+              <strong>{{ s.display_name }}</strong>
               <span class="hint">
                 {% if s.fide_title %}{{ s.fide_title }} · {% endif %}
                 {% if s.fide_federation %}{{ s.fide_federation }} · {% endif %}
                 {% if s.lichess_username %}🔗 {{ s.lichess_username }}{% else %}pas de compte Lichess lié{% endif %}
               </span>
             </div>
-            <form method="post" action="{{ url_for('coach_remove_student', class_id=klass.id, student_id=s.id) }}">
-              <button type="submit" class="unlink-btn" title="Retirer de la classe">✕</button>
+            <form method="post" action="{{ url_for('coach_remove_student', class_id=klass.id, student_id=s.id) }}"
+                  class="no-card-nav trash-form" data-confirm="Retirer {{ s.display_name }} de cette classe ?">
+              <button type="submit" class="trash-btn" title="Retirer de la classe">🗑️</button>
             </form>
           </li>
         {% endfor %}

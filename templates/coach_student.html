@@ -63,14 +63,16 @@
       {% else %}
         <ul class="puzzle-list">
           {% for c in classes %}
-            <li class="puzzle-card">
+            <li class="puzzle-card selectable-card" data-href="{{ url_for('coach_view_class', class_id=c.id) }}">
               <div class="puzzle-info"><strong>{{ c.name }}</strong></div>
-              <a class="btn small" href="{{ url_for('coach_view_class', class_id=c.id) }}">Ouvrir</a>
             </li>
           {% endfor %}
         </ul>
       {% endif %}
     </section>
+
   </main>
+
+  <script src="{{ url_for('static', filename='coach.js') }}"></script>
 </body>
 </html>

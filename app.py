@@ -118,30 +118,49 @@ def get_all_accounts_for_session():
 # entraîneur automatiquement (une ligne `coaches` est créée au premier accès).
 # Le lien Lichess d'un élève est OPTIONNEL (décision produit) : un élève peut
 # n'être qu'un nom + éventuellement une fiche FIDE, sans compte Lichess propre.
+#
+# Un ENTRAÎNEUR (contrairement à un élève) peut désormais se connecter de
+# deux façons : via Lichess (OAuth PKCE existant) ou via un lien magique
+# envoyé par email (Supabase Auth). get_current_coach_identity() renvoie
+# laquelle des deux est active dans la session courante.
 
-def get_or_create_coach(username):
-    """Renvoie l'id de la ligne `coaches` pour ce pseudo Lichess, en la
-    créant si besoin. Renvoie None si Supabase n'est pas configuré."""
+def get_current_coach_identity():
+    """Renvoie (identity_type, identity_value) pour le mode entraîneur :
+    ('lichess', pseudo) si connecté via Lichess, ('email', adresse) si
+    connecté via magic link, ou (None, None) si non connecté du tout."""
+    if "access_token" in session and session.get("lichess_username"):
+        return "lichess", session["lichess_username"]
+    if session.get("coach_email"):
+        return "email", session["coach_email"]
+    return None, None
+
+
+def get_or_create_coach(identity_type, identity_value):
+    """Renvoie l'id de la ligne `coaches` pour cette identité (pseudo
+    Lichess OU email), en la créant si besoin. Renvoie None si Supabase
+    n'est pas configuré ou si l'identité est vide."""
     sb = get_supabase()
-    if not sb or not username:
+    if not sb or not identity_type or not identity_value:
         return None
+
+    column = "lichess_username" if identity_type == "lichess" else "email"
     try:
         resp = (
             sb.table("coaches")
             .select("id")
-            .eq("lichess_username", username)
+            .eq(column, identity_value)
             .limit(1)
             .execute()
         )
         if resp.data:
             return resp.data[0]["id"]
         created = sb.table("coaches").insert({
-            "lichess_username": username,
-            "display_name": username,
+            column: identity_value,
+            "display_name": identity_value,
         }).execute()
         return created.data[0]["id"] if created.data else None
     except Exception as exc:
-        app.logger.error("Échec get_or_create_coach pour %s : %s", username, exc)
+        app.logger.error("Échec get_or_create_coach pour %s=%s : %s", column, identity_value, exc)
         return None
 
 
@@ -439,20 +458,84 @@ def logout():
     return redirect(url_for("index"))
 
 
+# --- Connexion par email (magic link) --------------------------------------
+# Deuxième mode d'authentification, réservé au mode entraîneur / premium
+# (pas au jeu des puzzles, qui reste lié à un compte Lichess). Utilise
+# Supabase Auth (GoTrue) : le lien envoyé par email redirige vers
+# /auth/callback avec un jeton dans le FRAGMENT d'URL (#access_token=...),
+# invisible côté serveur — d'où la page relais en JS qui le récupère côté
+# navigateur et le renvoie au serveur en POST pour créer la session Flask.
+
+@app.route("/login-email", methods=["GET", "POST"])
+def login_email():
+    """Formulaire de connexion par email + envoi du lien magique."""
+    if request.method == "GET":
+        return render_template("login_email.html")
+
+    email = (request.form.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return render_template("login_email.html", error="Adresse email invalide.")
+
+    sb = get_supabase()
+    if not sb:
+        return render_template("login_email.html", error="Supabase non configuré.")
+
+    try:
+        sb.auth.sign_in_with_otp({
+            "email": email,
+            "options": {"email_redirect_to": url_for("auth_callback", _external=True)},
+        })
+    except Exception as exc:
+        app.logger.error("Échec envoi magic link à %s : %s", email, exc)
+        return render_template("login_email.html", error="Échec de l'envoi du lien. Réessayez.")
+
+    return render_template("login_email.html", sent_to=email)
+
+
+@app.route("/auth/callback", methods=["GET", "POST"])
+def auth_callback():
+    """GET : page relais qui extrait le jeton du fragment d'URL en JS et le
+    renvoie en POST (le fragment #... n'est jamais transmis au serveur).
+    POST : vérifie le jeton auprès de Supabase Auth et ouvre la session."""
+    if request.method == "GET":
+        return render_template("auth_callback.html")
+
+    access_token = (request.get_json(silent=True) or {}).get("access_token")
+    if not access_token:
+        return {"error": "missing_token"}, 400
+
+    sb = get_supabase()
+    if not sb:
+        return {"error": "supabase_unavailable"}, 503
+
+    try:
+        user_resp = sb.auth.get_user(access_token)
+        email = user_resp.user.email if user_resp and user_resp.user else None
+    except Exception as exc:
+        app.logger.error("Échec vérification du jeton magic link : %s", exc)
+        return {"error": "invalid_token"}, 401
+
+    if not email:
+        return {"error": "invalid_token"}, 401
+
+    session["coach_email"] = email
+    return {"ok": True}
+
+
 @app.route("/coach")
 def coach_dashboard():
     """Tableau de bord entraîneur : liste des classes de l'utilisateur
     connecté. Le mode entraîneur ne nécessite pas d'opt-in préalable :
     la ligne `coaches` est créée automatiquement au premier accès."""
-    if "access_token" not in session:
+    if "access_token" not in session and not session.get("coach_email"):
         return redirect(url_for("index"))
 
-    username = session.get("lichess_username")
+    identity_type, identity_value = get_current_coach_identity()
     sb = get_supabase()
     if not sb:
         return render_template("coach.html", error="Supabase non configuré.", classes=[])
 
-    coach_id = get_or_create_coach(username)
+    coach_id = get_or_create_coach(identity_type, identity_value)
     if coach_id is None:
         return render_template("coach.html", error="Impossible d'initialiser le mode entraîneur.", classes=[])
 
@@ -483,12 +566,12 @@ def coach_dashboard():
 def coach_create_class():
     """Crée une nouvelle classe avec un nom auto-proposé ('Classe N'),
     modifiable ensuite via coach_rename_class."""
-    if "access_token" not in session:
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
         return redirect(url_for("index"))
 
-    username = session.get("lichess_username")
     sb = get_supabase()
-    coach_id = get_or_create_coach(username) if sb else None
+    coach_id = get_or_create_coach(identity_type, identity_value) if sb else None
     if not sb or coach_id is None:
         return redirect(url_for("coach_dashboard"))
 
@@ -506,12 +589,12 @@ def coach_update_class(class_id):
     """Renomme ou supprime une classe (formulaire HTML classique, pas
     d'API JSON séparée : cohérent avec le style des autres routes du
     projet comme /unlink-account)."""
-    if "access_token" not in session:
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
         return redirect(url_for("index"))
 
-    username = session.get("lichess_username")
     sb = get_supabase()
-    coach_id = get_or_create_coach(username) if sb else None
+    coach_id = get_or_create_coach(identity_type, identity_value) if sb else None
     if not sb or coach_id is None:
         return redirect(url_for("coach_dashboard"))
 
@@ -531,16 +614,40 @@ def coach_update_class(class_id):
     return redirect(url_for("coach_dashboard"))
 
 
+@app.route("/coach/classes/bulk-delete", methods=["POST"])
+def coach_bulk_delete_classes():
+    """Supprime plusieurs classes sélectionnées d'un coup (sélection
+    multiple sur le tableau de bord). Ne supprime que les classes
+    appartenant bien à l'entraîneur connecté."""
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    coach_id = get_or_create_coach(identity_type, identity_value) if sb else None
+    if not sb or coach_id is None:
+        return redirect(url_for("coach_dashboard"))
+
+    class_ids = [int(v) for v in request.form.getlist("class_ids") if v.isdigit()]
+    if class_ids:
+        try:
+            sb.table("classes").delete().in_("id", class_ids).eq("coach_id", coach_id).execute()
+        except Exception as exc:
+            app.logger.error("Échec suppression groupée de classes %s : %s", class_ids, exc)
+
+    return redirect(url_for("coach_dashboard"))
+
+
 @app.route("/coach/classes/<int:class_id>")
 def coach_view_class(class_id):
     """Détail d'une classe : liste des élèves + formulaire d'ajout avec
     autocomplétion (élèves existants + base FIDE en cache local)."""
-    if "access_token" not in session:
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
         return redirect(url_for("index"))
 
-    username = session.get("lichess_username")
     sb = get_supabase()
-    coach_id = get_or_create_coach(username) if sb else None
+    coach_id = get_or_create_coach(identity_type, identity_value) if sb else None
     if not sb or coach_id is None:
         return redirect(url_for("coach_dashboard"))
 
@@ -564,11 +671,21 @@ def coach_view_class(class_id):
             .execute()
         )
         roster = [row["students"] for row in (roster_resp.data or []) if row.get("students")]
+
+        other_classes_resp = (
+            sb.table("classes")
+            .select("id, name")
+            .eq("coach_id", coach_id)
+            .neq("id", class_id)
+            .order("name")
+            .execute()
+        )
+        other_classes = other_classes_resp.data or []
     except Exception as exc:
         app.logger.error("Échec chargement classe %s : %s", class_id, exc)
         return redirect(url_for("coach_dashboard"))
 
-    return render_template("coach_class.html", klass=klass, roster=roster)
+    return render_template("coach_class.html", klass=klass, roster=roster, other_classes=other_classes)
 
 
 @app.route("/coach/students/<int:student_id>")
@@ -576,12 +693,12 @@ def coach_view_student(student_id):
     """Fiche détaillée d'un élève : toutes les informations FIDE obtenues
     via l'import (scripts/import_fide_players.py), plus le lien Lichess
     optionnel et la liste des classes où il apparaît."""
-    if "access_token" not in session:
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
         return redirect(url_for("index"))
 
-    username = session.get("lichess_username")
     sb = get_supabase()
-    coach_id = get_or_create_coach(username) if sb else None
+    coach_id = get_or_create_coach(identity_type, identity_value) if sb else None
     if not sb or coach_id is None:
         return redirect(url_for("coach_dashboard"))
 
@@ -636,11 +753,11 @@ def api_students_search():
     """Autocomplétion : GET /api/students/search?q=car
     Renvoie les élèves déjà créés par l'entraîneur (priorité, évite les
     doublons) puis des correspondances dans le cache local de la base FIDE."""
-    if "access_token" not in session:
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
         return {"error": "not_authenticated"}, 401
 
-    username = session.get("lichess_username")
-    coach_id = get_or_create_coach(username)
+    coach_id = get_or_create_coach(identity_type, identity_value)
     if coach_id is None:
         return {"error": "coach_unavailable"}, 503
 
@@ -656,12 +773,12 @@ def coach_add_student(class_id):
       - fide_id fourni (sans id) -> nouvel élève créé depuis une fiche FIDE
       - ni l'un ni l'autre       -> élève purement manuel (nom libre, débutant)
     Le lien Lichess (lichess_username) reste optionnel dans tous les cas."""
-    if "access_token" not in session:
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
         return redirect(url_for("index"))
 
-    username = session.get("lichess_username")
     sb = get_supabase()
-    coach_id = get_or_create_coach(username) if sb else None
+    coach_id = get_or_create_coach(identity_type, identity_value) if sb else None
     if not sb or coach_id is None:
         return redirect(url_for("coach_dashboard"))
 
@@ -709,12 +826,12 @@ def coach_add_student(class_id):
 def coach_remove_student(class_id, student_id):
     """Retire un élève d'une classe (ne supprime pas sa fiche `students`,
     qui peut être partagée par d'autres classes)."""
-    if "access_token" not in session:
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
         return redirect(url_for("index"))
 
-    username = session.get("lichess_username")
     sb = get_supabase()
-    coach_id = get_or_create_coach(username) if sb else None
+    coach_id = get_or_create_coach(identity_type, identity_value) if sb else None
     if not sb or coach_id is None:
         return redirect(url_for("coach_dashboard"))
 
@@ -728,6 +845,82 @@ def coach_remove_student(class_id, student_id):
             ).execute()
     except Exception as exc:
         app.logger.error("Échec retrait élève %s de la classe %s : %s", student_id, class_id, exc)
+
+    return redirect(url_for("coach_view_class", class_id=class_id))
+
+
+@app.route("/coach/classes/<int:class_id>/students/bulk-remove", methods=["POST"])
+def coach_bulk_remove_students(class_id):
+    """Retire plusieurs élèves sélectionnés de la classe en une seule
+    action (ne supprime pas leurs fiches `students`)."""
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    coach_id = get_or_create_coach(identity_type, identity_value) if sb else None
+    if not sb or coach_id is None:
+        return redirect(url_for("coach_dashboard"))
+
+    student_ids = [int(v) for v in request.form.getlist("student_ids") if v.isdigit()]
+    try:
+        class_check = (
+            sb.table("classes").select("id").eq("id", class_id).eq("coach_id", coach_id).limit(1).execute()
+        )
+        if class_check.data and student_ids:
+            sb.table("class_students").delete().eq("class_id", class_id).in_(
+                "student_id", student_ids
+            ).execute()
+    except Exception as exc:
+        app.logger.error("Échec retrait groupé d'élèves de la classe %s : %s", class_id, exc)
+
+    return redirect(url_for("coach_view_class", class_id=class_id))
+
+
+@app.route("/coach/classes/<int:class_id>/students/bulk-move", methods=["POST"])
+def coach_bulk_move_students(class_id):
+    """Déplace plusieurs élèves sélectionnés vers une autre classe du même
+    entraîneur : ajout à la classe cible puis retrait de la classe
+    d'origine (un élève n'est donc plus dans la classe de départ)."""
+    identity_type, identity_value = get_current_coach_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    coach_id = get_or_create_coach(identity_type, identity_value) if sb else None
+    if not sb or coach_id is None:
+        return redirect(url_for("coach_dashboard"))
+
+    student_ids = [int(v) for v in request.form.getlist("student_ids") if v.isdigit()]
+    target_class_id = request.form.get("target_class_id")
+
+    if student_ids and target_class_id and target_class_id.isdigit():
+        target_class_id = int(target_class_id)
+        try:
+            # Vérifie que la classe source ET la classe cible appartiennent
+            # bien à cet entraîneur (pas de déplacement vers la classe d'un
+            # autre coach).
+            checks = (
+                sb.table("classes")
+                .select("id")
+                .in_("id", [class_id, target_class_id])
+                .eq("coach_id", coach_id)
+                .execute()
+            )
+            valid_ids = {row["id"] for row in (checks.data or [])}
+            if class_id in valid_ids and target_class_id in valid_ids:
+                sb.table("class_students").upsert(
+                    [{"class_id": target_class_id, "student_id": sid} for sid in student_ids],
+                    on_conflict="class_id,student_id",
+                ).execute()
+                sb.table("class_students").delete().eq("class_id", class_id).in_(
+                    "student_id", student_ids
+                ).execute()
+        except Exception as exc:
+            app.logger.error(
+                "Échec déplacement groupé d'élèves de la classe %s vers %s : %s",
+                class_id, target_class_id, exc,
+            )
 
     return redirect(url_for("coach_view_class", class_id=class_id))
 

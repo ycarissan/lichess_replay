@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connexion en cours…</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="center-box">
+    <h1>Connexion en cours…</h1>
+    <p id="status" class="hint">Vérification du lien, un instant.</p>
+  </main>
+
+  <script>
+    // Supabase renvoie le jeton dans le FRAGMENT d'URL (après #), qui n'est
+    // jamais transmis au serveur par le navigateur : on doit le lire ici,
+    // côté client, puis le renvoyer nous-mêmes en POST.
+    (function () {
+      const statusEl = document.getElementById("status");
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      const accessToken = params.get("access_token");
+      const errorDescription = params.get("error_description");
+
+      if (errorDescription) {
+        statusEl.textContent = "Lien invalide ou expiré : " + decodeURIComponent(errorDescription);
+        statusEl.classList.add("error");
+        return;
+      }
+
+      if (!accessToken) {
+        statusEl.textContent = "Lien invalide ou expiré. Redemandez un lien de connexion.";
+        statusEl.classList.add("error");
+        return;
+      }
+
+      fetch("{{ url_for('auth_callback') }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: accessToken }),
+      })
+        .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          if (ok && data.ok) {
+            window.location.replace("{{ url_for('coach_dashboard') }}");
+          } else {
+            statusEl.textContent = "Échec de la connexion. Redemandez un lien.";
+            statusEl.classList.add("error");
+          }
+        })
+        .catch(() => {
+          statusEl.textContent = "Erreur réseau. Réessayez.";
+          statusEl.classList.add("error");
+        });
+    })();
+  </script>
+</body>
+</html>
