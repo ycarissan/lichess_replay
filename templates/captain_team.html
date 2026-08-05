@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ team.name }} — Mode capitaine</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <h1>{{ team.name }}</h1>
+      <div class="topbar-actions">
+        <a class="btn small" href="{{ url_for('captain_dashboard') }}">← Mes équipes</a>
+      </div>
+    </header>
+
+    <p class="hint">{{ team.team_types.name }} — {{ team.team_types.board_count }} joueurs par match</p>
+
+    {% if not squad %}
+      <p class="error">L'effectif de cette équipe est vide : demandez au manager d'ajouter des joueurs
+        avant de pouvoir composer une équipe pour une ronde.</p>
+    {% else %}
+      <section>
+        <h2>Composer une ronde</h2>
+        <form method="post" action="{{ url_for('captain_save_lineup', team_id=team.id) }}">
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.8rem;">
+            <label class="hint">Ronde n°
+              <input type="number" name="round_number" min="1" required style="padding:0.4rem; border-radius:6px; border:1px solid #ccc; width:80px;">
+            </label>
+            <label class="hint">Libellé (optionnel)
+              <input type="text" name="round_label" placeholder="ex. Nationale 6 - Ronde 2" style="padding:0.4rem; border-radius:6px; border:1px solid #ccc;">
+            </label>
+          </div>
+
+          <ul class="student-info-list">
+            {% for board in range(1, team.team_types.board_count + 1) %}
+              <li>
+                <label>Échiquier {{ board }} :
+                  <select name="board_player_id" style="padding:0.4rem; border-radius:6px; border:1px solid #ccc;">
+                    <option value="">— vacant —</option>
+                    {% for p in squad %}
+                      <option value="{{ p.id }}">{{ p.display_name }}{% if p.fide_title %} ({{ p.fide_title }}){% endif %}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+              </li>
+            {% endfor %}
+          </ul>
+
+          <button type="submit" class="btn">Enregistrer la composition</button>
+        </form>
+        <p class="hint">Enregistrer une ronde déjà composée remplace intégralement la composition précédente pour cette ronde.</p>
+      </section>
+    {% endif %}
+
+    <h2>Compositions enregistrées ({{ lineups|length }})</h2>
+    {% if not lineups %}
+      <p class="hint">Aucune composition enregistrée pour l'instant.</p>
+    {% else %}
+      <ul class="puzzle-list">
+        {% for l in lineups %}
+          <li class="puzzle-card">
+            <div class="puzzle-info">
+              <strong>Ronde {{ l.round_number }}{{ " — " + l.round_label if l.round_label else "" }}</strong>
+              <span class="hint">
+                {% for b in l.boards %}
+                  Éch. {{ b.board_number }} : {{ b.player_name }}{{ ", " if not loop.last else "" }}
+                {% else %}
+                  aucun joueur affecté
+                {% endfor %}
+              </span>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </main>
+</body>
+</html>

@@ -1,19 +1,36 @@
 /**
- * Autocomplétion de recherche d'élève sur la page de détail d'une classe.
- * Interroge /api/students/search?q=... (élèves existants de l'entraîneur
- * en priorité, puis cache local de la base FIDE — jamais d'appel direct à
- * ratings.fide.com depuis le navigateur).
+ * Autocomplétion de recherche d'élève OU de joueur (mode manager),
+ * selon la page. Interroge /api/students/search ou /api/players/search
+ * (élèves/joueurs existants en priorité, puis cache local de la base
+ * FIDE — jamais d'appel direct à ratings.fide.com depuis le navigateur).
+ *
+ * Par défaut configuré pour la recherche d'élève (coach_class.html) ;
+ * une page peut définir window.AUTOCOMPLETE_CONFIG AVANT d'inclure ce
+ * script pour l'adapter (voir manager_team.html pour la recherche de
+ * joueur).
  */
 (function () {
-  const input = document.getElementById("student-search-input");
-  const resultsList = document.getElementById("student-search-results");
+  const config = Object.assign({
+    inputId: "student-search-input",
+    resultsId: "student-search-results",
+    endpoint: "/api/students/search",
+    nameField: "add-name",
+    idField: "add-student-id",
+    fideIdField: "add-fide-id",
+    federationField: "add-federation",
+    titleField: "add-title",
+    idKey: "student_id",  // clé du résultat JSON qui porte l'id existant
+  }, window.AUTOCOMPLETE_CONFIG || {});
+
+  const input = document.getElementById(config.inputId);
+  const resultsList = document.getElementById(config.resultsId);
   if (!input || !resultsList) return;
 
-  const nameField = document.getElementById("add-name");
-  const idField = document.getElementById("add-student-id");
-  const fideIdField = document.getElementById("add-fide-id");
-  const federationField = document.getElementById("add-federation");
-  const titleField = document.getElementById("add-title");
+  const nameField = document.getElementById(config.nameField);
+  const idField = document.getElementById(config.idField);
+  const fideIdField = document.getElementById(config.fideIdField);
+  const federationField = document.getElementById(config.federationField);
+  const titleField = document.getElementById(config.titleField);
 
   let debounceTimer = null;
   let currentAbortController = null;
@@ -45,7 +62,7 @@
   function selectResult(item) {
     input.value = item.name;
     nameField.value = item.name;
-    idField.value = item.source === "existing" ? item.student_id : "";
+    idField.value = item.source === "existing" ? item[config.idKey] : "";
     fideIdField.value = item.fide_id || "";
     federationField.value = item.federation || "";
     titleField.value = item.title || "";
@@ -73,7 +90,7 @@
       if (currentAbortController) currentAbortController.abort();
       currentAbortController = new AbortController();
       try {
-        const resp = await fetch(`/api/students/search?q=${encodeURIComponent(query)}`, {
+        const resp = await fetch(`${config.endpoint}?q=${encodeURIComponent(query)}`, {
           signal: currentAbortController.signal,
         });
         if (!resp.ok) {

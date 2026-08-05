@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mode manager — Lichess Puzzle Replay</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <h1>🏆 {{ club_name or "Mode manager" }}</h1>
+      <div class="topbar-actions">
+        <a class="btn small" href="{{ url_for('puzzles') }}">← Retour aux puzzles</a>
+      </div>
+    </header>
+
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if club_name is none and not error %}
+      <p>Bienvenue ! Commencez par nommer votre club.</p>
+      <form method="post" action="{{ url_for('manager_create_club') }}">
+        <input type="text" name="name" placeholder="Nom du club" required
+               style="padding:0.5rem; border-radius:8px; border:1px solid #ccc; width:100%; max-width:360px; box-sizing:border-box; margin-bottom:0.6rem;">
+        <button type="submit" class="btn">Créer le club</button>
+      </form>
+    {% elif club_name %}
+      <section>
+        <h2>Types d'équipe</h2>
+        <p class="hint">Pré-remplis avec les formats FFE connus (Top 16, N1, N2 open et jeunes).
+          Les divisions régionales (Nationale 3 et en dessous pour les adultes) varient selon la ligue :
+          ajoutez les vôtres ci-dessous.</p>
+
+        <form method="post" action="{{ url_for('manager_add_team_type') }}" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;">
+          <input type="text" name="name" placeholder="Nom (ex. Nationale 6)" required style="padding:0.5rem; border-radius:8px; border:1px solid #ccc;">
+          <input type="number" name="board_count" placeholder="Joueurs" min="1" required style="padding:0.5rem; border-radius:8px; border:1px solid #ccc; width:100px;">
+          <button type="submit" class="btn small">Ajouter</button>
+        </form>
+
+        {% if team_types %}
+          <ul class="puzzle-list">
+            {% for tt in team_types %}
+              <li class="puzzle-card">
+                <div class="puzzle-info"><strong>{{ tt.name }}</strong><span class="hint">{{ tt.board_count }} joueur{{ 's' if tt.board_count != 1 else '' }}</span></div>
+                <form method="post" action="{{ url_for('manager_delete_team_type', team_type_id=tt.id) }}"
+                      onsubmit="return confirm('Supprimer ce type d\'équipe ?');">
+                  <button type="submit" class="trash-btn" title="Supprimer">🗑️</button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </section>
+
+      <section>
+        <h2>Équipes</h2>
+        {% if team_types %}
+          <form method="post" action="{{ url_for('manager_create_team') }}" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;">
+            <input type="text" name="name" placeholder="Nom de l'équipe (ex. Équipe 1)" required style="padding:0.5rem; border-radius:8px; border:1px solid #ccc;">
+            <select name="team_type_id" required style="padding:0.5rem; border-radius:8px; border:1px solid #ccc;">
+              <option value="" disabled selected>Type d'équipe…</option>
+              {% for tt in team_types %}
+                <option value="{{ tt.id }}">{{ tt.name }} ({{ tt.board_count }})</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn small">Créer l'équipe</button>
+          </form>
+        {% else %}
+          <p class="hint">Ajoutez d'abord un type d'équipe pour pouvoir créer une équipe.</p>
+        {% endif %}
+
+        {% if not teams %}
+          <p class="hint">Aucune équipe pour l'instant.</p>
+        {% else %}
+          <ul class="puzzle-list">
+            {% for t in teams %}
+              <li class="puzzle-card selectable-card" data-href="{{ url_for('manager_view_team', team_id=t.id) }}">
+                <div class="puzzle-info">
+                  <strong>{{ t.name }}</strong>
+                  <span class="hint">{{ t.team_type_name }} ({{ t.board_count }}) ·
+                    {{ t.squad_count }} joueur{{ 's' if t.squad_count != 1 else '' }} ·
+                    {{ "Capitaine : " + t.captain_name if t.captain_name else "Pas de capitaine" }}</span>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </section>
+    {% endif %}
+  </main>
+
+  <script src="{{ url_for('static', filename='coach.js') }}"></script>
+</body>
+</html>

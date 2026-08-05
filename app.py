@@ -113,19 +113,15 @@ def get_all_accounts_for_session():
     return accounts
 
 
-# --- Mode entraîneur -------------------------------------------------------
-# Aucun rôle à cocher à l'inscription : quiconque visite /coach devient
-# entraîneur automatiquement (une ligne `coaches` est créée au premier accès).
-# Le lien Lichess d'un élève est OPTIONNEL (décision produit) : un élève peut
-# n'être qu'un nom + éventuellement une fiche FIDE, sans compte Lichess propre.
-#
-# Un ENTRAÎNEUR (contrairement à un élève) peut désormais se connecter de
-# deux façons : via Lichess (OAuth PKCE existant) ou via un lien magique
-# envoyé par email (Supabase Auth). get_current_coach_identity() renvoie
-# laquelle des deux est active dans la session courante.
+# --- Identité de session (Lichess ou email), partagée par tous les rôles ---
+# entraîneur, manager de club et capitaine d'équipe se connectent tous de
+# la même façon (Lichess OAuth existant, ou magic link email). Ce qui les
+# distingue, c'est uniquement la présence d'une ligne correspondante dans
+# coaches / managers / captains — une même personne peut cumuler plusieurs
+# rôles avec la même identité de connexion.
 
-def get_current_coach_identity():
-    """Renvoie (identity_type, identity_value) pour le mode entraîneur :
+def get_current_identity():
+    """Renvoie (identity_type, identity_value) pour la session courante :
     ('lichess', pseudo) si connecté via Lichess, ('email', adresse) si
     connecté via magic link, ou (None, None) si non connecté du tout."""
     if "access_token" in session and session.get("lichess_username"):
@@ -135,10 +131,15 @@ def get_current_coach_identity():
     return None, None
 
 
-def get_or_create_coach(identity_type, identity_value):
-    """Renvoie l'id de la ligne `coaches` pour cette identité (pseudo
-    Lichess OU email), en la créant si besoin. Renvoie None si Supabase
-    n'est pas configuré ou si l'identité est vide."""
+# Alias conservé pour tous les appels existants du mode entraîneur.
+get_current_coach_identity = get_current_identity
+
+
+def _get_or_create_identity_row(table, identity_type, identity_value, extra_fields=None):
+    """Utilitaire générique : renvoie l'id d'une ligne identifiée par
+    lichess_username OU email dans `table` (coaches, managers, captains),
+    en la créant si besoin. Renvoie None si Supabase n'est pas configuré
+    ou si l'identité est vide."""
     sb = get_supabase()
     if not sb or not identity_type or not identity_value:
         return None
@@ -146,7 +147,7 @@ def get_or_create_coach(identity_type, identity_value):
     column = "lichess_username" if identity_type == "lichess" else "email"
     try:
         resp = (
-            sb.table("coaches")
+            sb.table(table)
             .select("id")
             .eq(column, identity_value)
             .limit(1)
@@ -154,14 +155,150 @@ def get_or_create_coach(identity_type, identity_value):
         )
         if resp.data:
             return resp.data[0]["id"]
-        created = sb.table("coaches").insert({
-            column: identity_value,
-            "display_name": identity_value,
-        }).execute()
+        payload = {column: identity_value, "display_name": identity_value}
+        payload.update(extra_fields or {})
+        created = sb.table(table).insert(payload).execute()
         return created.data[0]["id"] if created.data else None
     except Exception as exc:
-        app.logger.error("Échec get_or_create_coach pour %s=%s : %s", column, identity_value, exc)
+        app.logger.error("Échec _get_or_create_identity_row(%s) pour %s=%s : %s",
+                          table, column, identity_value, exc)
         return None
+
+
+# --- Mode entraîneur -------------------------------------------------------
+# Aucun rôle à cocher à l'inscription : quiconque visite /coach devient
+# entraîneur automatiquement (une ligne `coaches` est créée au premier accès).
+# Le lien Lichess d'un élève est OPTIONNEL (décision produit) : un élève peut
+# n'être qu'un nom + éventuellement une fiche FIDE, sans compte Lichess propre.
+
+def get_or_create_coach(identity_type, identity_value):
+    """Renvoie l'id de la ligne `coaches` pour cette identité (pseudo
+    Lichess OU email), en la créant si besoin."""
+    return _get_or_create_identity_row("coaches", identity_type, identity_value)
+
+
+# --- Mode manager / capitaine (clubs, équipes, compositions) ---------------
+# Un manager gère un club (créé lui-même au premier accès, avec son nom
+# choisi). Un club a un catalogue de types d'équipe (nom + nombre de
+# joueurs requis par match) et un vivier de joueurs. Une équipe est d'un
+# type donné, avec un capitaine et un effectif (sous-ensemble du vivier).
+# Le capitaine — connecté comme un coach/manager (Lichess ou email) —
+# compose, pour une ronde donnée, une liste de joueurs tirée de
+# l'effectif de son équipe.
+#
+# Chiffres pré-remplis, sourcés sur les règlements FFE en vigueur (Top 16,
+# N1, N2 open et Interclubs Jeunes) : au-delà (Nationale 3 et en dessous
+# pour les adultes, format régional/départemental), le nombre de joueurs
+# varie selon la ligue — ces types ne sont PAS pré-remplis, à ajouter
+# librement par chaque club selon sa propre ligue.
+DEFAULT_TEAM_TYPES = [
+    ("Top 16", 8),
+    ("Nationale 1", 8),
+    ("Nationale 2", 8),
+    ("Top 16 Féminin", 4),
+    ("Nationale 1 Féminin", 4),
+    ("Nationale 2 Féminin", 4),
+    ("Top Jeunes", 8),
+    ("Nationale 1 Jeunes", 8),
+    ("Nationale 2 Jeunes", 8),
+    ("Nationale 3 Jeunes", 4),
+]
+
+
+def get_or_create_manager(identity_type, identity_value):
+    """Renvoie l'id de la ligne `managers` pour cette identité, en la
+    créant si besoin (sans club associé au départ : voir
+    get_manager_club qui invite à en créer un)."""
+    return _get_or_create_identity_row("managers", identity_type, identity_value)
+
+
+def get_or_create_captain(identity_type, identity_value):
+    """Renvoie l'id de la ligne `captains` pour cette identité, en la
+    créant si besoin (sans club/équipe associée au départ : un manager
+    doit ensuite désigner ce capitaine sur une équipe)."""
+    return _get_or_create_identity_row("captains", identity_type, identity_value)
+
+
+def get_manager_club(manager_id, sb):
+    """Renvoie (club_id, club_name) pour ce manager, ou (None, None) s'il
+    n'a pas encore créé de club."""
+    resp = sb.table("managers").select("club_id, clubs(id, name)").eq("id", manager_id).limit(1).execute()
+    if not resp.data or not resp.data[0].get("clubs"):
+        return None, None
+    club = resp.data[0]["clubs"]
+    return club["id"], club["name"]
+
+
+def seed_default_team_types(club_id, sb):
+    """Pré-remplit le catalogue de types d'équipe d'un nouveau club avec
+    les valeurs sourcées (voir DEFAULT_TEAM_TYPES) — modifiable/extensible
+    ensuite librement par le manager."""
+    try:
+        sb.table("team_types").insert([
+            {"club_id": club_id, "name": name, "board_count": count}
+            for name, count in DEFAULT_TEAM_TYPES
+        ]).execute()
+    except Exception as exc:
+        app.logger.error("Échec seed_default_team_types pour club %s : %s", club_id, exc)
+
+
+def search_players_autocomplete(club_id, query, limit=8):
+    """Autocomplétion de recherche de joueur pour un club : cherche
+    d'abord parmi les joueurs déjà créés dans ce club, puis dans le cache
+    local de la base FIDE (même logique que search_students_autocomplete
+    côté mode entraîneur)."""
+    sb = get_supabase()
+    if not sb or not query or len(query.strip()) < 2:
+        return []
+    q_lower = query.strip().lower()
+
+    results = []
+    try:
+        own = (
+            sb.table("players")
+            .select("id, display_name, fide_id, fide_federation, fide_title, lichess_username")
+            .eq("club_id", club_id)
+            .like("display_name_lower", f"{q_lower}%")
+            .limit(limit)
+            .execute()
+        )
+        for row in own.data or []:
+            results.append({
+                "source": "existing",
+                "player_id": row["id"],
+                "name": row["display_name"],
+                "federation": row.get("fide_federation"),
+                "title": row.get("fide_title"),
+                "fide_id": row.get("fide_id"),
+                "lichess_username": row.get("lichess_username"),
+            })
+    except Exception as exc:
+        app.logger.error("Échec recherche players pour club %s : %s", club_id, exc)
+
+    remaining = limit - len(results)
+    if remaining > 0:
+        try:
+            fide = (
+                sb.table("fide_players")
+                .select("fide_id, name, federation, title")
+                .like("name_lower", f"{q_lower}%")
+                .limit(remaining)
+                .execute()
+            )
+            for row in fide.data or []:
+                results.append({
+                    "source": "fide",
+                    "player_id": None,
+                    "name": row["name"],
+                    "federation": row.get("federation"),
+                    "title": row.get("title"),
+                    "fide_id": row.get("fide_id"),
+                    "lichess_username": None,
+                })
+        except Exception as exc:
+            app.logger.error("Échec recherche fide_players pour %r : %s", q_lower, exc)
+
+    return results
 
 
 def _next_class_name(coach_id, sb):
@@ -923,6 +1060,497 @@ def coach_bulk_move_students(class_id):
             )
 
     return redirect(url_for("coach_view_class", class_id=class_id))
+
+
+# --- Routes manager ----------------------------------------------------
+
+@app.route("/manager")
+def manager_dashboard():
+    """Tableau de bord manager. Si le manager n'a pas encore de club,
+    affiche le formulaire de création (nom du club) ; sinon, ses types
+    d'équipe et ses équipes."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    if not sb:
+        return render_template("manager.html", error="Supabase non configuré.", club_name=None)
+
+    manager_id = get_or_create_manager(identity_type, identity_value)
+    if manager_id is None:
+        return render_template("manager.html", error="Impossible d'initialiser le mode manager.", club_name=None)
+
+    club_id, club_name = get_manager_club(manager_id, sb)
+    if club_id is None:
+        return render_template("manager.html", club_name=None)
+
+    try:
+        team_types_resp = (
+            sb.table("team_types").select("id, name, board_count").eq("club_id", club_id).order("name").execute()
+        )
+        team_types = team_types_resp.data or []
+
+        teams_resp = (
+            sb.table("teams")
+            .select("id, name, team_types(name, board_count), captains(display_name), team_squad(count)")
+            .eq("club_id", club_id)
+            .order("name")
+            .execute()
+        )
+        teams = [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "team_type_name": (row.get("team_types") or {}).get("name"),
+                "board_count": (row.get("team_types") or {}).get("board_count"),
+                "captain_name": (row.get("captains") or {}).get("display_name") if row.get("captains") else None,
+                "squad_count": (row.get("team_squad") or [{}])[0].get("count", 0),
+            }
+            for row in (teams_resp.data or [])
+        ]
+    except Exception as exc:
+        app.logger.error("Échec chargement du club %s : %s", club_id, exc)
+        team_types, teams = [], []
+
+    return render_template("manager.html", club_name=club_name, team_types=team_types, teams=teams)
+
+
+@app.route("/manager/club", methods=["POST"])
+def manager_create_club():
+    """Crée le club du manager (nom choisi) et pré-remplit son catalogue
+    de types d'équipe avec les valeurs FFE sourcées (DEFAULT_TEAM_TYPES)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    manager_id = get_or_create_manager(identity_type, identity_value) if sb else None
+    if not sb or manager_id is None:
+        return redirect(url_for("manager_dashboard"))
+
+    name = (request.form.get("name") or "").strip()
+    if name:
+        try:
+            created = sb.table("clubs").insert({"name": name}).execute()
+            if created.data:
+                club_id = created.data[0]["id"]
+                sb.table("managers").update({"club_id": club_id}).eq("id", manager_id).execute()
+                seed_default_team_types(club_id, sb)
+        except Exception as exc:
+            app.logger.error("Échec création du club '%s' : %s", name, exc)
+
+    return redirect(url_for("manager_dashboard"))
+
+
+@app.route("/manager/team-types", methods=["POST"])
+def manager_add_team_type():
+    """Ajoute un type d'équipe personnalisé au catalogue du club (ex. une
+    division régionale non pré-remplie)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    manager_id = get_or_create_manager(identity_type, identity_value) if sb else None
+    club_id, _ = get_manager_club(manager_id, sb) if sb and manager_id else (None, None)
+    if not sb or club_id is None:
+        return redirect(url_for("manager_dashboard"))
+
+    name = (request.form.get("name") or "").strip()
+    board_count = request.form.get("board_count")
+    if name and board_count and board_count.isdigit() and int(board_count) > 0:
+        try:
+            sb.table("team_types").insert({
+                "club_id": club_id, "name": name, "board_count": int(board_count),
+            }).execute()
+        except Exception as exc:
+            app.logger.error("Échec ajout du type d'équipe '%s' : %s", name, exc)
+
+    return redirect(url_for("manager_dashboard"))
+
+
+@app.route("/manager/team-types/<int:team_type_id>", methods=["POST"])
+def manager_delete_team_type(team_type_id):
+    """Supprime un type d'équipe du catalogue (impossible s'il est encore
+    utilisé par une équipe, la contrainte de clé étrangère l'empêchera)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    manager_id = get_or_create_manager(identity_type, identity_value) if sb else None
+    club_id, _ = get_manager_club(manager_id, sb) if sb and manager_id else (None, None)
+    if not sb or club_id is None:
+        return redirect(url_for("manager_dashboard"))
+
+    try:
+        sb.table("team_types").delete().eq("id", team_type_id).eq("club_id", club_id).execute()
+    except Exception as exc:
+        app.logger.error("Échec suppression du type d'équipe %s : %s", team_type_id, exc)
+
+    return redirect(url_for("manager_dashboard"))
+
+
+@app.route("/manager/teams", methods=["POST"])
+def manager_create_team():
+    """Crée une nouvelle équipe (nom + type)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    manager_id = get_or_create_manager(identity_type, identity_value) if sb else None
+    club_id, _ = get_manager_club(manager_id, sb) if sb and manager_id else (None, None)
+    if not sb or club_id is None:
+        return redirect(url_for("manager_dashboard"))
+
+    name = (request.form.get("name") or "").strip()
+    team_type_id = request.form.get("team_type_id")
+    if name and team_type_id and team_type_id.isdigit():
+        try:
+            sb.table("teams").insert({
+                "club_id": club_id, "team_type_id": int(team_type_id), "name": name,
+            }).execute()
+        except Exception as exc:
+            app.logger.error("Échec création de l'équipe '%s' : %s", name, exc)
+
+    return redirect(url_for("manager_dashboard"))
+
+
+@app.route("/manager/teams/<int:team_id>")
+def manager_view_team(team_id):
+    """Détail d'une équipe côté manager : effectif, capitaine, recherche
+    de joueurs à ajouter (autocomplétion vivier club + cache FIDE)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    manager_id = get_or_create_manager(identity_type, identity_value) if sb else None
+    club_id, _ = get_manager_club(manager_id, sb) if sb and manager_id else (None, None)
+    if not sb or club_id is None:
+        return redirect(url_for("manager_dashboard"))
+
+    try:
+        team_resp = (
+            sb.table("teams")
+            .select("id, name, team_type_id, captain_id, team_types(name, board_count)")
+            .eq("id", team_id)
+            .eq("club_id", club_id)
+            .limit(1)
+            .execute()
+        )
+        if not team_resp.data:
+            return redirect(url_for("manager_dashboard"))
+        team = team_resp.data[0]
+
+        squad_resp = (
+            sb.table("team_squad")
+            .select("player_id, players(id, display_name, fide_id, fide_federation, fide_title, lichess_username)")
+            .eq("team_id", team_id)
+            .execute()
+        )
+        squad = [row["players"] for row in (squad_resp.data or []) if row.get("players")]
+
+        captains_resp = sb.table("captains").select("id, display_name").eq("club_id", club_id).order("display_name").execute()
+        captains = captains_resp.data or []
+    except Exception as exc:
+        app.logger.error("Échec chargement de l'équipe %s : %s", team_id, exc)
+        return redirect(url_for("manager_dashboard"))
+
+    return render_template("manager_team.html", team=team, squad=squad, captains=captains)
+
+
+@app.route("/manager/teams/<int:team_id>/captain", methods=["POST"])
+def manager_set_team_captain(team_id):
+    """Assigne (ou retire) le capitaine d'une équipe."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    manager_id = get_or_create_manager(identity_type, identity_value) if sb else None
+    club_id, _ = get_manager_club(manager_id, sb) if sb and manager_id else (None, None)
+    if not sb or club_id is None:
+        return redirect(url_for("manager_dashboard"))
+
+    captain_id = request.form.get("captain_id")
+    try:
+        sb.table("teams").update({
+            "captain_id": int(captain_id) if captain_id and captain_id.isdigit() else None,
+        }).eq("id", team_id).eq("club_id", club_id).execute()
+    except Exception as exc:
+        app.logger.error("Échec assignation capitaine pour l'équipe %s : %s", team_id, exc)
+
+    return redirect(url_for("manager_view_team", team_id=team_id))
+
+
+@app.route("/manager/teams/<int:team_id>/squad", methods=["POST"])
+def manager_add_squad_player(team_id):
+    """Ajoute un joueur à l'effectif d'une équipe. Comme pour les élèves du
+    mode entraîneur : player_id existant, fiche FIDE, ou saisie manuelle."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    manager_id = get_or_create_manager(identity_type, identity_value) if sb else None
+    club_id, _ = get_manager_club(manager_id, sb) if sb and manager_id else (None, None)
+    if not sb or club_id is None:
+        return redirect(url_for("manager_dashboard"))
+
+    team_check = sb.table("teams").select("id").eq("id", team_id).eq("club_id", club_id).limit(1).execute()
+    if not team_check.data:
+        return redirect(url_for("manager_dashboard"))
+
+    player_id = request.form.get("player_id")
+    display_name = (request.form.get("name") or "").strip()
+    lichess_username = (request.form.get("lichess_username") or "").strip() or None
+
+    try:
+        if player_id:
+            sb.table("team_squad").upsert({
+                "team_id": team_id, "player_id": int(player_id),
+            }, on_conflict="team_id,player_id").execute()
+        elif display_name:
+            fide_id = request.form.get("fide_id") or None
+            new_player = sb.table("players").insert({
+                "club_id": club_id,
+                "display_name": display_name,
+                "fide_id": int(fide_id) if fide_id else None,
+                "fide_federation": request.form.get("federation") or None,
+                "fide_title": request.form.get("title") or None,
+                "lichess_username": lichess_username,
+                "source": "fide" if fide_id else "manual",
+            }).execute()
+            if new_player.data:
+                sb.table("team_squad").insert({
+                    "team_id": team_id, "player_id": new_player.data[0]["id"],
+                }).execute()
+    except Exception as exc:
+        app.logger.error("Échec ajout joueur à l'effectif de l'équipe %s : %s", team_id, exc)
+
+    return redirect(url_for("manager_view_team", team_id=team_id))
+
+
+@app.route("/manager/teams/<int:team_id>/squad/<int:player_id>", methods=["POST"])
+def manager_remove_squad_player(team_id, player_id):
+    """Retire un joueur de l'effectif d'une équipe (ne supprime pas sa
+    fiche `players`, qui peut être partagée par d'autres équipes)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    manager_id = get_or_create_manager(identity_type, identity_value) if sb else None
+    club_id, _ = get_manager_club(manager_id, sb) if sb and manager_id else (None, None)
+    if not sb or club_id is None:
+        return redirect(url_for("manager_dashboard"))
+
+    try:
+        team_check = sb.table("teams").select("id").eq("id", team_id).eq("club_id", club_id).limit(1).execute()
+        if team_check.data:
+            sb.table("team_squad").delete().eq("team_id", team_id).eq("player_id", player_id).execute()
+    except Exception as exc:
+        app.logger.error("Échec retrait joueur %s de l'équipe %s : %s", player_id, team_id, exc)
+
+    return redirect(url_for("manager_view_team", team_id=team_id))
+
+
+@app.route("/api/players/search")
+def api_players_search():
+    """Autocomplétion : GET /api/players/search?q=car (mode manager,
+    parallèle à /api/students/search côté mode entraîneur)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return {"error": "not_authenticated"}, 401
+
+    sb = get_supabase()
+    manager_id = get_or_create_manager(identity_type, identity_value) if sb else None
+    club_id, _ = get_manager_club(manager_id, sb) if sb and manager_id else (None, None)
+    if club_id is None:
+        return {"error": "manager_unavailable"}, 503
+
+    query = request.args.get("q", "")
+    return jsonify(search_players_autocomplete(club_id, query))
+
+
+# --- Routes capitaine ----------------------------------------------------
+
+@app.route("/captain")
+def captain_dashboard():
+    """Tableau de bord capitaine : liste des équipes dont il/elle a la
+    charge (toutes celles où teams.captain_id pointe vers son identité)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    if not sb:
+        return render_template("captain.html", error="Supabase non configuré.", teams=[])
+
+    captain_id = get_or_create_captain(identity_type, identity_value)
+    if captain_id is None:
+        return render_template("captain.html", error="Impossible d'initialiser le mode capitaine.", teams=[])
+
+    try:
+        teams_resp = (
+            sb.table("teams")
+            .select("id, name, team_types(name, board_count), team_squad(count)")
+            .eq("captain_id", captain_id)
+            .order("name")
+            .execute()
+        )
+        teams = [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "team_type_name": (row.get("team_types") or {}).get("name"),
+                "board_count": (row.get("team_types") or {}).get("board_count"),
+                "squad_count": (row.get("team_squad") or [{}])[0].get("count", 0),
+            }
+            for row in (teams_resp.data or [])
+        ]
+    except Exception as exc:
+        app.logger.error("Échec chargement des équipes du capitaine %s : %s", captain_id, exc)
+        teams = []
+
+    return render_template("captain.html", teams=teams)
+
+
+@app.route("/captain/teams/<int:team_id>")
+def captain_view_team(team_id):
+    """Détail d'une équipe côté capitaine : effectif disponible et
+    compositions déjà enregistrées par ronde."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    captain_id = get_or_create_captain(identity_type, identity_value) if sb else None
+    if not sb or captain_id is None:
+        return redirect(url_for("captain_dashboard"))
+
+    try:
+        team_resp = (
+            sb.table("teams")
+            .select("id, name, team_types(name, board_count)")
+            .eq("id", team_id)
+            .eq("captain_id", captain_id)
+            .limit(1)
+            .execute()
+        )
+        if not team_resp.data:
+            return redirect(url_for("captain_dashboard"))
+        team = team_resp.data[0]
+
+        squad_resp = (
+            sb.table("team_squad")
+            .select("players(id, display_name, fide_id, fide_federation, fide_title)")
+            .eq("team_id", team_id)
+            .execute()
+        )
+        squad = [row["players"] for row in (squad_resp.data or []) if row.get("players")]
+
+        lineups_resp = (
+            sb.table("team_lineups")
+            .select("id, round_number, round_label, lineup_players(board_number, players(display_name))")
+            .eq("team_id", team_id)
+            .order("round_number")
+            .execute()
+        )
+        lineups = []
+        for row in lineups_resp.data or []:
+            boards = sorted(row.get("lineup_players") or [], key=lambda b: b["board_number"])
+            lineups.append({
+                "id": row["id"],
+                "round_number": row["round_number"],
+                "round_label": row.get("round_label"),
+                "boards": [
+                    {"board_number": b["board_number"], "player_name": (b.get("players") or {}).get("display_name")}
+                    for b in boards
+                ],
+            })
+    except Exception as exc:
+        app.logger.error("Échec chargement équipe %s côté capitaine : %s", team_id, exc)
+        return redirect(url_for("captain_dashboard"))
+
+    return render_template("captain_team.html", team=team, squad=squad, lineups=lineups)
+
+
+@app.route("/captain/teams/<int:team_id>/lineups", methods=["POST"])
+def captain_save_lineup(team_id):
+    """Enregistre (ou remplace) la composition d'une ronde donnée : liste
+    de joueurs de l'effectif, un par échiquier. Le nombre de joueurs ne
+    doit pas dépasser le nombre d'échiquiers du type d'équipe."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type:
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    captain_id = get_or_create_captain(identity_type, identity_value) if sb else None
+    if not sb or captain_id is None:
+        return redirect(url_for("captain_dashboard"))
+
+    team_check = (
+        sb.table("teams")
+        .select("id, team_types(board_count)")
+        .eq("id", team_id)
+        .eq("captain_id", captain_id)
+        .limit(1)
+        .execute()
+    )
+    if not team_check.data:
+        return redirect(url_for("captain_dashboard"))
+    board_count = (team_check.data[0].get("team_types") or {}).get("board_count", 0)
+
+    round_number = request.form.get("round_number")
+    round_label = (request.form.get("round_label") or "").strip() or None
+    board_player_ids = request.form.getlist("board_player_id")  # index = échiquier - 1, "" si vide
+
+    if not round_number or not round_number.isdigit():
+        return redirect(url_for("captain_view_team", team_id=team_id))
+
+    round_number = int(round_number)
+    boards = [
+        {"board_number": i + 1, "player_id": int(pid)}
+        for i, pid in enumerate(board_player_ids)
+        if pid and pid.isdigit()
+    ]
+    if len(boards) > board_count:
+        boards = boards[:board_count]
+
+    try:
+        existing = (
+            sb.table("team_lineups")
+            .select("id")
+            .eq("team_id", team_id)
+            .eq("round_number", round_number)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            lineup_id = existing.data[0]["id"]
+            sb.table("team_lineups").update({
+                "round_label": round_label, "updated_at": "now()",
+            }).eq("id", lineup_id).execute()
+            sb.table("lineup_players").delete().eq("lineup_id", lineup_id).execute()
+        else:
+            created = sb.table("team_lineups").insert({
+                "team_id": team_id, "round_number": round_number, "round_label": round_label,
+            }).execute()
+            lineup_id = created.data[0]["id"] if created.data else None
+
+        if lineup_id and boards:
+            sb.table("lineup_players").insert([
+                {"lineup_id": lineup_id, "board_number": b["board_number"], "player_id": b["player_id"]}
+                for b in boards
+            ]).execute()
+    except Exception as exc:
+        app.logger.error("Échec enregistrement composition équipe %s ronde %s : %s", team_id, round_number, exc)
+
+    return redirect(url_for("captain_view_team", team_id=team_id))
 
 
 @app.route("/puzzles")

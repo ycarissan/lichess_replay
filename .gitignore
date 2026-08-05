@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+scripts/players_list_xml_foa.xml
+players_list_xml*.xml

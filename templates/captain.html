@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mode capitaine — Lichess Puzzle Replay</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <h1>🎖️ Mes équipes</h1>
+      <div class="topbar-actions">
+        <a class="btn small" href="{{ url_for('puzzles') }}">← Retour aux puzzles</a>
+      </div>
+    </header>
+
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% elif not teams %}
+      <p class="hint">Vous n'êtes capitaine d'aucune équipe pour l'instant. Demandez au manager de votre club
+        de vous désigner capitaine d'une équipe (il doit pouvoir vous retrouver dans la liste après votre
+        première connexion ici).</p>
+    {% else %}
+      <ul class="puzzle-list">
+        {% for t in teams %}
+          <li class="puzzle-card selectable-card" data-href="{{ url_for('captain_view_team', team_id=t.id) }}">
+            <div class="puzzle-info">
+              <strong>{{ t.name }}</strong>
+              <span class="hint">{{ t.team_type_name }} ({{ t.board_count }} joueurs) · {{ t.squad_count }} dans l'effectif</span>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </main>
+
+  <script src="{{ url_for('static', filename='coach.js') }}"></script>
+</body>
+</html>

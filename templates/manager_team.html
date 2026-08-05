@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ team.name }} — Mode manager</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <h1>{{ team.name }}</h1>
+      <div class="topbar-actions">
+        <a class="btn small" href="{{ url_for('manager_dashboard') }}">← Mon club</a>
+      </div>
+    </header>
+
+    <p class="hint">{{ team.team_types.name }} — {{ team.team_types.board_count }} joueurs par match</p>
+
+    <section>
+      <h2>Capitaine</h2>
+      <form method="post" action="{{ url_for('manager_set_team_captain', team_id=team.id) }}" style="display:flex; gap:0.5rem; align-items:center;">
+        <select name="captain_id" style="padding:0.5rem; border-radius:8px; border:1px solid #ccc;">
+          <option value="">— Aucun —</option>
+          {% for c in captains %}
+            <option value="{{ c.id }}" {{ "selected" if team.captain_id == c.id else "" }}>{{ c.display_name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn small">Enregistrer</button>
+      </form>
+      <p class="hint">Le capitaine doit s'être déjà connecté une première fois (Lichess ou email) pour apparaître ici.</p>
+    </section>
+
+    <section id="add-player-section">
+      <h2>Ajouter un joueur à l'effectif</h2>
+      <div class="popover-anchor">
+        <input type="text" id="player-search-input" autocomplete="off"
+               placeholder="Commencez à taper un nom (joueur existant ou base FIDE)…">
+        <ul id="player-search-results" class="student-search-results" hidden></ul>
+      </div>
+
+      <form method="post" action="{{ url_for('manager_add_squad_player', team_id=team.id) }}" id="add-player-form">
+        <input type="hidden" name="player_id" id="add-player-id">
+        <input type="hidden" name="fide_id" id="add-fide-id">
+        <input type="hidden" name="federation" id="add-federation">
+        <input type="hidden" name="title" id="add-title">
+        <label class="hint">Nom affiché
+          <input type="text" name="name" id="add-name" required>
+        </label>
+        <label class="hint">Pseudo Lichess (optionnel)
+          <input type="text" name="lichess_username" id="add-lichess-username" placeholder="optionnel">
+        </label>
+        <button type="submit" class="btn small">Ajouter à l'effectif</button>
+      </form>
+    </section>
+
+    <h2>Effectif ({{ squad|length }})</h2>
+    {% if not squad %}
+      <p class="hint">Aucun joueur dans l'effectif pour l'instant.</p>
+    {% else %}
+      <ul class="puzzle-list">
+        {% for p in squad %}
+          <li class="puzzle-card">
+            <div class="puzzle-info">
+              <strong>{{ p.display_name }}</strong>
+              <span class="hint">
+                {% if p.fide_title %}{{ p.fide_title }} · {% endif %}
+                {% if p.fide_federation %}{{ p.fide_federation }} · {% endif %}
+                {% if p.lichess_username %}🔗 {{ p.lichess_username }}{% else %}pas de compte Lichess lié{% endif %}
+              </span>
+            </div>
+            <form method="post" action="{{ url_for('manager_remove_squad_player', team_id=team.id, player_id=p.id) }}"
+                  onsubmit="return confirm('Retirer {{ p.display_name }} de l\'effectif ?');">
+              <button type="submit" class="trash-btn" title="Retirer de l'effectif">🗑️</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </main>
+
+  <script>
+    // Réutilise la logique d'autocomplétion de coach.js, adaptée aux
+    // identifiants #player-* et à l'endpoint /api/players/search.
+    window.AUTOCOMPLETE_CONFIG = {
+      inputId: "player-search-input",
+      resultsId: "player-search-results",
+      endpoint: "/api/players/search",
+      nameField: "add-name",
+      idField: "add-player-id",
+      fideIdField: "add-fide-id",
+      federationField: "add-federation",
+      titleField: "add-title",
+      idKey: "player_id",
+    };
+  </script>
+  <script src="{{ url_for('static', filename='coach.js') }}"></script>
+</body>
+</html>
