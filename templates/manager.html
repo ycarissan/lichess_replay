@@ -19,6 +19,14 @@
       <p class="error">{{ error }}</p>
     {% endif %}
 
+    {% if impersonating %}
+      <form method="post" action="{{ url_for('sayen_stop_impersonating') }}">
+        <p class="error">🦸 Vous gérez ce club en tant que sayen.
+          <button type="submit" class="btn small">Revenir à l'administration</button>
+        </p>
+      </form>
+    {% endif %}
+
     {% if club_name is none and not error %}
       <p>Bienvenue ! Commencez par nommer votre club.</p>
       <form method="post" action="{{ url_for('manager_create_club') }}">

@@ -171,9 +171,35 @@ def _get_or_create_identity_row(table, identity_type, identity_value, extra_fiel
 # Le lien Lichess d'un élève est OPTIONNEL (décision produit) : un élève peut
 # n'être qu'un nom + éventuellement une fiche FIDE, sans compte Lichess propre.
 
+def is_current_user_sayen(identity_type, identity_value):
+    """Vérifie si l'identité de session courante est un sayen (super-admin).
+    Contrairement à coach/manager/captain, il n'y a AUCUNE auto-création :
+    un sayen n'existe que si quelqu'un l'a ajouté manuellement en base
+    (voir scripts/create_sayen_role.sql)."""
+    sb = get_supabase()
+    if not sb or not identity_type or not identity_value:
+        return False
+    column = "lichess_username" if identity_type == "lichess" else "email"
+    try:
+        resp = sb.table("sayens").select("id").eq(column, identity_value).limit(1).execute()
+        return bool(resp.data)
+    except Exception as exc:
+        app.logger.error("Échec is_current_user_sayen pour %s=%s : %s", column, identity_value, exc)
+        return False
+
+
 def get_or_create_coach(identity_type, identity_value):
     """Renvoie l'id de la ligne `coaches` pour cette identité (pseudo
-    Lichess OU email), en la créant si besoin."""
+    Lichess OU email), en la créant si besoin.
+
+    Cas particulier sayen : si un sayen a choisi de "se faire passer pour"
+    un coach précis (session['sayen_impersonate_coach_id'], posé par une
+    route protégée par is_current_user_sayen), on renvoie directement cet
+    id plutôt que de créer/chercher une ligne pour l'identité du sayen
+    lui-même — il agit alors avec les données de ce coach."""
+    override = session.get("sayen_impersonate_coach_id")
+    if override:
+        return override
     return _get_or_create_identity_row("coaches", identity_type, identity_value)
 
 
@@ -215,13 +241,30 @@ def get_or_create_manager(identity_type, identity_value):
 def get_or_create_captain(identity_type, identity_value):
     """Renvoie l'id de la ligne `captains` pour cette identité, en la
     créant si besoin (sans club/équipe associée au départ : un manager
-    doit ensuite désigner ce capitaine sur une équipe)."""
+    doit ensuite désigner ce capitaine sur une équipe).
+
+    Cas particulier sayen : si un sayen "se fait passer pour" un capitaine
+    précis (session['sayen_impersonate_captain_id']), on renvoie cet id
+    directement (voir get_or_create_coach pour le même mécanisme)."""
+    override = session.get("sayen_impersonate_captain_id")
+    if override:
+        return override
     return _get_or_create_identity_row("captains", identity_type, identity_value)
 
 
 def get_manager_club(manager_id, sb):
     """Renvoie (club_id, club_name) pour ce manager, ou (None, None) s'il
-    n'a pas encore créé de club."""
+    n'a pas encore créé de club.
+
+    Cas particulier sayen : si un sayen "gère" un club précis
+    (session['sayen_impersonate_club_id']), ce club est renvoyé quel que
+    soit le manager_id passé en argument."""
+    override = session.get("sayen_impersonate_club_id")
+    if override:
+        resp = sb.table("clubs").select("id, name").eq("id", override).limit(1).execute()
+        if resp.data:
+            return resp.data[0]["id"], resp.data[0]["name"]
+
     resp = sb.table("managers").select("club_id, clubs(id, name)").eq("id", manager_id).limit(1).execute()
     if not resp.data or not resp.data[0].get("clubs"):
         return None, None
@@ -669,12 +712,13 @@ def coach_dashboard():
 
     identity_type, identity_value = get_current_coach_identity()
     sb = get_supabase()
+    impersonating = bool(session.get("sayen_impersonate_coach_id"))
     if not sb:
-        return render_template("coach.html", error="Supabase non configuré.", classes=[])
+        return render_template("coach.html", error="Supabase non configuré.", classes=[], impersonating=impersonating)
 
     coach_id = get_or_create_coach(identity_type, identity_value)
     if coach_id is None:
-        return render_template("coach.html", error="Impossible d'initialiser le mode entraîneur.", classes=[])
+        return render_template("coach.html", error="Impossible d'initialiser le mode entraîneur.", classes=[], impersonating=impersonating)
 
     try:
         resp = (
@@ -696,7 +740,7 @@ def coach_dashboard():
         app.logger.error("Échec chargement classes pour coach %s : %s", coach_id, exc)
         classes = []
 
-    return render_template("coach.html", classes=classes)
+    return render_template("coach.html", classes=classes, impersonating=impersonating)
 
 
 @app.route("/coach/classes", methods=["POST"])
@@ -1074,16 +1118,17 @@ def manager_dashboard():
         return redirect(url_for("index"))
 
     sb = get_supabase()
+    impersonating = bool(session.get("sayen_impersonate_club_id"))
     if not sb:
-        return render_template("manager.html", error="Supabase non configuré.", club_name=None)
+        return render_template("manager.html", error="Supabase non configuré.", club_name=None, impersonating=impersonating)
 
     manager_id = get_or_create_manager(identity_type, identity_value)
     if manager_id is None:
-        return render_template("manager.html", error="Impossible d'initialiser le mode manager.", club_name=None)
+        return render_template("manager.html", error="Impossible d'initialiser le mode manager.", club_name=None, impersonating=impersonating)
 
     club_id, club_name = get_manager_club(manager_id, sb)
     if club_id is None:
-        return render_template("manager.html", club_name=None)
+        return render_template("manager.html", club_name=None, impersonating=impersonating)
 
     try:
         team_types_resp = (
@@ -1113,7 +1158,7 @@ def manager_dashboard():
         app.logger.error("Échec chargement du club %s : %s", club_id, exc)
         team_types, teams = [], []
 
-    return render_template("manager.html", club_name=club_name, team_types=team_types, teams=teams)
+    return render_template("manager.html", club_name=club_name, team_types=team_types, teams=teams, impersonating=impersonating)
 
 
 @app.route("/manager/club", methods=["POST"])
@@ -1551,6 +1596,143 @@ def captain_save_lineup(team_id):
         app.logger.error("Échec enregistrement composition équipe %s ronde %s : %s", team_id, round_number, exc)
 
     return redirect(url_for("captain_view_team", team_id=team_id))
+
+
+# --- Routes sayen (super-administrateur) ------------------------------------
+# Un sayen n'est JAMAIS créé automatiquement (voir is_current_user_sayen) :
+# ces routes vérifient systématiquement l'appartenance à la table `sayens`
+# avant toute action, contrairement aux autres rôles qui s'auto-créent au
+# premier accès.
+
+@app.route("/sayen")
+def sayen_dashboard():
+    """Vue d'ensemble : tous les clubs et tous les coachs, tous comptes
+    confondus. Point d'entrée pour prendre la main sur n'importe lequel
+    (impersonation) ou le supprimer."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type or not is_current_user_sayen(identity_type, identity_value):
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    if not sb:
+        return render_template("sayen.html", error="Supabase non configuré.", clubs=[], coaches=[])
+
+    try:
+        clubs_resp = (
+            sb.table("clubs")
+            .select("id, name, managers(display_name), teams(count)")
+            .order("name")
+            .execute()
+        )
+        clubs = [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "manager_name": (row.get("managers") or [{}])[0].get("display_name") if row.get("managers") else None,
+                "team_count": (row.get("teams") or [{}])[0].get("count", 0),
+            }
+            for row in (clubs_resp.data or [])
+        ]
+
+        coaches_resp = (
+            sb.table("coaches")
+            .select("id, display_name, lichess_username, email, classes(count)")
+            .order("display_name")
+            .execute()
+        )
+        coaches = [
+            {
+                "id": row["id"],
+                "display_name": row["display_name"],
+                "lichess_username": row.get("lichess_username"),
+                "email": row.get("email"),
+                "class_count": (row.get("classes") or [{}])[0].get("count", 0),
+            }
+            for row in (coaches_resp.data or [])
+        ]
+    except Exception as exc:
+        app.logger.error("Échec chargement du tableau de bord sayen : %s", exc)
+        clubs, coaches = [], []
+
+    impersonating = bool(
+        session.get("sayen_impersonate_coach_id")
+        or session.get("sayen_impersonate_club_id")
+        or session.get("sayen_impersonate_captain_id")
+    )
+    return render_template("sayen.html", clubs=clubs, coaches=coaches, impersonating=impersonating)
+
+
+@app.route("/sayen/impersonate/coach/<int:coach_id>", methods=["POST"])
+def sayen_impersonate_coach(coach_id):
+    """Bascule en mode "vue du coach n°X" : toutes les routes /coach/*
+    existantes s'appliquent alors à ce coach, sans rien dupliquer."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type or not is_current_user_sayen(identity_type, identity_value):
+        return redirect(url_for("index"))
+
+    session["sayen_impersonate_coach_id"] = coach_id
+    session.pop("sayen_impersonate_club_id", None)
+    session.pop("sayen_impersonate_captain_id", None)
+    return redirect(url_for("coach_dashboard"))
+
+
+@app.route("/sayen/impersonate/club/<int:club_id>", methods=["POST"])
+def sayen_impersonate_club(club_id):
+    """Bascule en mode "vue du club n°X" : toutes les routes /manager/*
+    existantes s'appliquent alors à ce club."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type or not is_current_user_sayen(identity_type, identity_value):
+        return redirect(url_for("index"))
+
+    session["sayen_impersonate_club_id"] = club_id
+    session.pop("sayen_impersonate_coach_id", None)
+    session.pop("sayen_impersonate_captain_id", None)
+    return redirect(url_for("manager_dashboard"))
+
+
+@app.route("/sayen/stop-impersonating", methods=["POST"])
+def sayen_stop_impersonating():
+    """Revient à sa propre identité (arrête toute impersonation en cours)."""
+    session.pop("sayen_impersonate_coach_id", None)
+    session.pop("sayen_impersonate_club_id", None)
+    session.pop("sayen_impersonate_captain_id", None)
+    return redirect(url_for("sayen_dashboard"))
+
+
+@app.route("/sayen/coaches/<int:coach_id>", methods=["POST"])
+def sayen_delete_coach(coach_id):
+    """Supprime un coach et tout ce qui lui appartient (classes, élèves —
+    cascade déjà en place au niveau SQL)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type or not is_current_user_sayen(identity_type, identity_value):
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    if sb:
+        try:
+            sb.table("coaches").delete().eq("id", coach_id).execute()
+        except Exception as exc:
+            app.logger.error("Échec suppression coach %s (sayen) : %s", coach_id, exc)
+
+    return redirect(url_for("sayen_dashboard"))
+
+
+@app.route("/sayen/clubs/<int:club_id>", methods=["POST"])
+def sayen_delete_club(club_id):
+    """Supprime un club et tout ce qui lui appartient (équipes, joueurs,
+    types d'équipe, capitaines — cascade déjà en place au niveau SQL)."""
+    identity_type, identity_value = get_current_identity()
+    if not identity_type or not is_current_user_sayen(identity_type, identity_value):
+        return redirect(url_for("index"))
+
+    sb = get_supabase()
+    if sb:
+        try:
+            sb.table("clubs").delete().eq("id", club_id).execute()
+        except Exception as exc:
+            app.logger.error("Échec suppression club %s (sayen) : %s", club_id, exc)
+
+    return redirect(url_for("sayen_dashboard"))
 
 
 @app.route("/puzzles")

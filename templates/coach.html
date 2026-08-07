@@ -19,6 +19,14 @@
       <p class="error">{{ error }}</p>
     {% endif %}
 
+    {% if impersonating %}
+      <form method="post" action="{{ url_for('sayen_stop_impersonating') }}">
+        <p class="error">🦸 Vous consultez ce compte en tant que sayen.
+          <button type="submit" class="btn small">Revenir à l'administration</button>
+        </p>
+      </form>
+    {% endif %}
+
     <form method="post" action="{{ url_for('coach_create_class') }}">
       <button type="submit" class="btn">+ Nouvelle classe</button>
     </form>

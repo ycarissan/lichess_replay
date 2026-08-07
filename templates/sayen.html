@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sayen — Administration</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <h1>🦸 Administration (sayen)</h1>
+      <div class="topbar-actions">
+        <a class="btn small" href="{{ url_for('puzzles') }}">← Retour aux puzzles</a>
+      </div>
+    </header>
+
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% else %}
+      {% if impersonating %}
+        <form method="post" action="{{ url_for('sayen_stop_impersonating') }}">
+          <p class="error">Vous agissez actuellement à la place d'un coach ou d'un club.
+            <button type="submit" class="btn small">Revenir à ma propre vue</button>
+          </p>
+        </form>
+      {% endif %}
+
+      <section>
+        <h2>Clubs ({{ clubs|length }})</h2>
+        {% if not clubs %}
+          <p class="hint">Aucun club créé pour l'instant.</p>
+        {% else %}
+          <ul class="puzzle-list">
+            {% for c in clubs %}
+              <li class="puzzle-card">
+                <div class="puzzle-info">
+                  <strong>{{ c.name }}</strong>
+                  <span class="hint">{{ c.team_count }} équipe{{ 's' if c.team_count != 1 else '' }} ·
+                    {{ "manager : " + c.manager_name if c.manager_name else "pas de manager identifié" }}</span>
+                </div>
+                <div class="card-actions">
+                  <form method="post" action="{{ url_for('sayen_impersonate_club', club_id=c.id) }}">
+                    <button type="submit" class="btn small">Gérer ce club</button>
+                  </form>
+                  <form method="post" action="{{ url_for('sayen_delete_club', club_id=c.id) }}"
+                        onsubmit="return confirm('Supprimer le club {{ c.name }} et TOUT ce qui lui appartient (équipes, joueurs) ?');">
+                    <button type="submit" class="trash-btn" title="Supprimer le club">🗑️</button>
+                  </form>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </section>
+
+      <section>
+        <h2>Entraîneurs ({{ coaches|length }})</h2>
+        {% if not coaches %}
+          <p class="hint">Aucun entraîneur pour l'instant.</p>
+        {% else %}
+          <ul class="puzzle-list">
+            {% for co in coaches %}
+              <li class="puzzle-card">
+                <div class="puzzle-info">
+                  <strong>{{ co.display_name }}</strong>
+                  <span class="hint">{{ co.lichess_username or co.email }} · {{ co.class_count }} classe{{ 's' if co.class_count != 1 else '' }}</span>
+                </div>
+                <div class="card-actions">
+                  <form method="post" action="{{ url_for('sayen_impersonate_coach', coach_id=co.id) }}">
+                    <button type="submit" class="btn small">Voir ses classes</button>
+                  </form>
+                  <form method="post" action="{{ url_for('sayen_delete_coach', coach_id=co.id) }}"
+                        onsubmit="return confirm('Supprimer l\'entraîneur {{ co.display_name }} et TOUTES ses classes/élèves ?');">
+                    <button type="submit" class="trash-btn" title="Supprimer">🗑️</button>
+                  </form>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </section>
+    {% endif %}
+  </main>
+</body>
+</html>
